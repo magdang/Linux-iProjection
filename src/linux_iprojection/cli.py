@@ -220,7 +220,7 @@ async def _keystone(args):
         sys.exit(1)
         
     try:
-        axis_enum = KeystoneAxis[args.axis.upper()]
+        axis_enum = {"h": KeystoneAxis.HORIZONTAL, "v": KeystoneAxis.VERTICAL}[args.axis.lower()]
     except KeyError:
         print(f"Invalid keystone axis '{args.axis}'. Valid axes:")
         for a in KeystoneAxis:

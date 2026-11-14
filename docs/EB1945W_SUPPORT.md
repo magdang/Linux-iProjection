@@ -91,3 +91,18 @@ performance follow-up, not necessary for correct projection. Native audio,
 encrypted sessions, multi-presenter control, and virtual display creation remain
 separate protocol work. Tests cannot establish that a physical image appeared;
 that is recorded separately above.
+
+## Validation recorded on 2026-11-15
+
+- Full regression suite: 152 passing tests. Two additional CLI axis/range
+  regression cases also passed after the full run.
+- Ruff and Python compilation passed. The wheel was built and installed into
+  the existing isolated `.venv`; installed transport files matched the source.
+- Real registration/discovery reports native EasyMP JPEG at 1280×800.
+- Native color bars were visually confirmed by the user. GStreamer synthetic
+  capture delivered 33 frames through the same TCP JPEG path.
+- During native projection, read/set-current/read checks passed for brightness,
+  contrast, sharpness, volume, color mode, eco mode, mute, freeze, and horizontal
+  and vertical keystone. Original values were retained.
+- No power cycle, physical remote-key sequence, or input-source sweep was run.
+  Real desktop sharing through the rebuilt GUI is a separate final visual check.

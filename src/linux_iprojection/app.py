@@ -960,7 +960,7 @@ class MainWindow(Adw.ApplicationWindow):
         box.append(stop_btn)
 
         clamp = Adw.Clamp(child=box, maximum_size=600, margin_start=16, margin_end=16)
-        return clamp
+        return Gtk.ScrolledWindow(child=clamp, vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
 
     # Actions & Shortcuts
 
