@@ -8,11 +8,13 @@ import dataclasses
 import inspect
 import json
 import sys
+import threading
 
 from .cast import TEST_PATTERNS, CastTarget, JpegRtpSink, RtpUdpSink, ScreenCaster
 from .client import ProjectorClient, wake_on_lan
 from .config import MacroStore
 from .discovery import discover_all
+from .easymp_cast import EasyMPCaster
 from .pjlink import PJLinkController
 from .protocol import (
     AspectRatio,
@@ -303,17 +305,22 @@ async def _cast(args):
         height=h,
         fps=fps,
     )
-    sink = JpegRtpSink() if getattr(args, "codec", "h264") == "jpeg" else RtpUdpSink()
-    caster = ScreenCaster(
-        sink=sink,
-        audio_enabled=not args.no_audio,
-        stream_quality=args.quality,
-        width=w,
-        height=h,
-        fps=fps,
-        on_stats=lambda s: None,
-        on_error=lambda e: print(f"Stream error: {e}"),
-    )
+    if args.transport == "easymp":
+        caster = EasyMPCaster(fps=fps, stream_quality=args.quality,
+                              on_error=lambda e: print(f"Stream error: {e}"))
+        print("Using native EasyMP TCP projection (video only; projector negotiates resolution).")
+    else:
+        sink = JpegRtpSink() if getattr(args, "codec", "h264") == "jpeg" else RtpUdpSink()
+        caster = ScreenCaster(
+            sink=sink,
+            audio_enabled=not args.no_audio,
+            stream_quality=args.quality,
+            width=w,
+            height=h,
+            fps=fps,
+            on_stats=lambda s: None,
+            on_error=lambda e: print(f"Stream error: {e}"),
+        )
 
     print(f"Starting screen cast to {args.ip}:{args.video_port} ({w}x{h}@{fps}fps, quality={args.quality})...")
     success = await caster.start(target)
@@ -323,7 +330,7 @@ async def _cast(args):
         else:
             err = getattr(caster, "last_error", None) or "portal or pipeline error"
             print(f"Failed to start casting: {err}")
-        return
+        raise SystemExit(0 if caster.user_cancelled else 1)
 
     print(f"Casting to {args.ip} — press Ctrl+C to stop.")
 
@@ -336,7 +343,8 @@ async def _cast(args):
     loop.add_signal_handler(signal.SIGINT, _sigint)
 
     try:
-        await stop_event.wait()
+        while not stop_event.is_set() and caster.is_casting:
+            await asyncio.sleep(0.2)
     except asyncio.CancelledError:
         pass
     finally:
@@ -346,18 +354,18 @@ async def _cast(args):
 
 async def _test_pattern(args):
     """Send a test pattern to the projector for calibration."""
-    target = CastTarget(host=args.ip, port=args.port, name="Test Pattern")
-    caster = ScreenCaster(
-        sink=RtpUdpSink(),
-        stream_quality=args.quality,
-        on_error=lambda e: print(f"Stream error: {e}"),
-    )
+    target = CastTarget(host=args.ip, port=args.port, name="Test Pattern", password=args.password)
+    if args.transport == "easymp":
+        caster = EasyMPCaster(stream_quality=args.quality, on_error=lambda e: print(f"Stream error: {e}"))
+    else:
+        caster = ScreenCaster(sink=RtpUdpSink(), stream_quality=args.quality,
+                              on_error=lambda e: print(f"Stream error: {e}"))
 
     print(f"Starting test pattern '{args.pattern}' → {args.ip}:{args.port} ...")
     success = await caster.start_test_pattern(target, pattern=args.pattern)
     if not success:
-        print("Failed to start test pattern.")
-        return
+        print(f"Failed to start test pattern: {caster.last_error}")
+        raise SystemExit(1)
 
     print("Test pattern streaming — press Ctrl+C to stop.")
     try:
@@ -589,6 +597,8 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
     # Cast
     cast_parser = subparsers.add_parser("cast", help="Start screen casting to projector")
     cast_parser.add_argument("ip", help="IP address of the projector")
+    cast_parser.add_argument("--transport", choices=["easymp", "rtp"], default="easymp",
+                             help="Native Epson EasyMP TCP (default), or raw RTP for a compatible receiver")
     cast_parser.add_argument("--video-port", type=int, default=5004, help="Video RTP port (default: 5004)")
     cast_parser.add_argument("--audio-port", type=int, default=5006, help="Audio RTP port (default: 5006)")
     cast_parser.add_argument("--no-audio", action="store_true", help="Disable audio streaming")
@@ -610,6 +620,8 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
     # Test Pattern
     tp_parser = subparsers.add_parser("test-pattern", help="Send a test pattern to projector")
     tp_parser.add_argument("ip", help="IP address of the projector")
+    tp_parser.add_argument("--transport", choices=["easymp", "rtp"], default="easymp")
+    tp_parser.add_argument("--keyword", "--password", dest="password", default="")
     tp_parser.add_argument("--pattern", choices=list(TEST_PATTERNS.keys()), default="smpte",
                            help="Test pattern name (default: smpte)")
     tp_parser.add_argument("--port", type=int, default=5004, help="Video RTP port (default: 5004)")
@@ -662,6 +674,12 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
         "check": _doctor,
     }
 
+    glib_loop = None
+    if args.command in ("cast", "test-pattern"):
+        from gi.repository import GLib
+        glib_loop = GLib.MainLoop()
+        threading.Thread(target=glib_loop.run, daemon=True).start()
+
     try:
         if args.command == "macro":
             if args.macro_command == "run":
@@ -679,6 +697,9 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
+    finally:
+        if glib_loop:
+            glib_loop.quit()
 
 
 if __name__ == "__main__":

@@ -487,4 +487,29 @@ async def test_escvp_password_required_error():
         await server.wait_closed()
 
 
+@pytest.mark.asyncio
+async def test_1945w_commands_and_macro_names(mocker):
+    from linux_iprojection.protocol import KeystoneAxis, RemoteKey
+
+    client = EscVpNetClient("127.0.0.1")
+    client.send = mocker.AsyncMock(return_value="SHARP=116")
+    assert await client.get_sharpness() == 116
+    client.send.assert_awaited_with("SHARP?")
+    await client.set_sharpness(116)
+    client.send.assert_awaited_with("SHARP 116")
+    await client.set_keystone(KeystoneAxis.HORIZONTAL, 143)
+    client.send.assert_awaited_with("HKEYSTONE 143")
+    await client.set_source("HDMI1")
+    client.send.assert_awaited_with("SOURCE 30")
+    await client.set_color_mode("BLACKBOARD")
+    client.send.assert_awaited_with("CMODE 11")
+    await client.set_aspect_ratio("AUTO")
+    client.send.assert_awaited_with("ASPECT 30")
+    await client.set_luminance("NORMAL")
+    client.send.assert_awaited_with("LUMINANCE 00")
+    assert [RemoteKey.MENU.value, RemoteKey.ENTER.value, RemoteKey.ESCAPE.value] == ["03", "16", "05"]
+    with pytest.raises(ValueError):
+        await client.set_keystone(KeystoneAxis.VERTICAL, -1)
+
+
         

@@ -19,10 +19,11 @@ gi.require_version('Gio', '2.0')
 gi.require_version('GLib', '2.0')
 from gi.repository import Gio, GLib  # noqa: E402
 
-from .cast import CastTarget, RtpUdpSink, ScreenCaster  # noqa: E402
+from .cast import CastTarget  # noqa: E402
 from .client import ProjectorClient  # noqa: E402
 from .config import MacroStore  # noqa: E402
 from .discovery import discover_all  # noqa: E402
+from .easymp_cast import EasyMPCaster  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class ProjectorDBusService:
         self.owner_id = None
 
         self._is_casting = False
-        self._caster: ScreenCaster | None = None
+        self._caster: EasyMPCaster | None = None
         self._cast_thread: threading.Thread | None = None
 
     def start(self):
@@ -159,7 +160,7 @@ class ProjectorDBusService:
                 ip = parameters.unpack()[0]
                 try:
                     target = CastTarget(host=ip, port=5004, audio_port=5006)
-                    self._caster = ScreenCaster(sink=RtpUdpSink())
+                    self._caster = EasyMPCaster()
                     
                     def run_cast():
                         try:

@@ -112,9 +112,9 @@ class FakeEscVpServer:
         elif cmd.startswith("CONTRAST "):
             self.contrast = int(cmd.split(" ", 1)[1])
             return ""
-        elif cmd == "SHARPNESS?":
+        elif cmd == "SHARP?":
             return f"SHARPNESS={getattr(self, 'sharpness', 128)}"
-        elif cmd.startswith("SHARPNESS "):
+        elif cmd.startswith("SHARP "):
             self.sharpness = int(cmd.split(" ", 1)[1])
             return ""
         elif cmd == "CTEMP?":

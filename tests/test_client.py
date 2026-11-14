@@ -51,3 +51,21 @@ async def test_client_status_deduplication(mocker):
     # ensure individual queries weren't called
     assert not mock_escvp.get_mute.called
     assert not mock_escvp.get_brightness.called
+
+
+@pytest.mark.asyncio
+async def test_status_preserves_gui_fields_and_zero_values(mocker):
+    from linux_iprojection.protocol import ProjectorStatus
+
+    raw = ProjectorStatus(power="01", muted=False, volume=0, freeze=True,
+                          color_mode="04", aspect="30", luminance="01", sharpness=116,
+                          hkeystone=143, vkeystone=192)
+    backend = mocker.AsyncMock()
+    backend.get_status.return_value = raw
+    client = ProjectorClient("127.0.0.1")
+    client._client = backend
+    result = await client.get_status()
+    for field in ("volume", "freeze", "color_mode", "aspect", "luminance", "sharpness", "hkeystone", "vkeystone"):
+        assert getattr(result, field) == getattr(raw, field)
+    backend.query_volume.assert_not_awaited()
+    backend.get_mute.assert_not_awaited()

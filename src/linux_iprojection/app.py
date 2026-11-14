@@ -202,7 +202,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._load_persisted_devices()
         self.on_refresh(None)
 
-        self.set_hide_on_close(True)
+        self.set_hide_on_close(False)
+        self.connect("close-request", self._on_window_close)
 
         # Start polling if auto-connect
         self._start_polling()
@@ -510,6 +511,8 @@ class MainWindow(Adw.ApplicationWindow):
             ["Mirror Screen (Native)", "Extend Screen (Virtual Monitor)"]
         )
         self.display_mode_row.set_model(self.display_mode_model)
+        self.display_mode_row.set_sensitive(False)
+        self.display_mode_row.set_subtitle("EasyMP mirrors the selected screen or window")
         cast_group.add(self.display_mode_row)
 
         # Hardware Acceleration (Encoder Preset)
@@ -521,6 +524,9 @@ class MainWindow(Adw.ApplicationWindow):
             ["Auto-Detect", "Intel / AMD (VAAPI)", "Nvidia (NVENC)", "Software (CPU)"]
         )
         self.encoder_preset_row.set_model(self.encoder_preset_model)
+        self.encoder_preset_row.set_selected(3)
+        self.encoder_preset_row.set_sensitive(False)
+        self.encoder_preset_row.set_subtitle("Native EasyMP uses CPU JPEG tile encoding")
         cast_group.add(self.encoder_preset_row)
 
         # Split position
@@ -532,14 +538,16 @@ class MainWindow(Adw.ApplicationWindow):
             ["Full Screen", "Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right"]
         )
         self.split_pos_row.set_model(self.split_pos_model)
+        self.split_pos_row.set_sensitive(False)
+        self.split_pos_row.set_subtitle("Multi-presenter layout negotiation is not implemented")
         cast_group.add(self.split_pos_row)
 
         # Audio toggle
         audio_row = Adw.ActionRow(
             title="Include audio",
-            subtitle="Stream system audio alongside video",
+            subtitle="System audio transport is not implemented for native EasyMP",
         )
-        self.audio_switch = Gtk.Switch(valign=Gtk.Align.CENTER, active=True)
+        self.audio_switch = Gtk.Switch(valign=Gtk.Align.CENTER, active=False, sensitive=False)
         audio_row.add_suffix(self.audio_switch)
         audio_row.set_activatable_widget(self.audio_switch)
         cast_group.add(audio_row)
@@ -636,15 +644,15 @@ class MainWindow(Adw.ApplicationWindow):
             spacing=32,
             halign=Gtk.Align.CENTER,
         )
-        top_row.append(_build_dpad_btn("label:Menu", "43", "pill"))
+        top_row.append(_build_dpad_btn("label:Menu", "03", "pill"))
         top_row.append(_build_dpad_btn("label:Esc", "05", "pill"))
         dpad_box.append(top_row)
 
         # D-Pad
         grid.attach(_build_dpad_btn("go-up-symbolic", "35"), 1, 0, 1, 1)
-        grid.attach(_build_dpad_btn("go-previous-symbolic", "5B"), 0, 1, 1, 1)
+        grid.attach(_build_dpad_btn("go-previous-symbolic", "37"), 0, 1, 1, 1)
         grid.attach(_build_dpad_btn("label:OK", "49", "suggested-action circular"), 1, 1, 1, 1)
-        grid.attach(_build_dpad_btn("go-next-symbolic", "5C"), 2, 1, 1, 1)
+        grid.attach(_build_dpad_btn("go-next-symbolic", "38"), 2, 1, 1, 1)
         grid.attach(_build_dpad_btn("go-down-symbolic", "36"), 1, 2, 1, 1)
         dpad_box.append(grid)
 
@@ -654,7 +662,7 @@ class MainWindow(Adw.ApplicationWindow):
             spacing=32,
             halign=Gtk.Align.CENTER,
         )
-        bottom_row.append(_build_dpad_btn("label:User", "48", "pill"))
+        bottom_row.append(_build_dpad_btn("label:User", "84", "pill"))
         bottom_row.append(_build_dpad_btn("label:Search", "67", "pill"))
         dpad_box.append(bottom_row)
 
@@ -663,8 +671,8 @@ class MainWindow(Adw.ApplicationWindow):
             spacing=32,
             halign=Gtk.Align.CENTER,
         )
-        vol_row_remote.append(_build_dpad_btn("label:Vol -", "59", "pill"))
-        vol_row_remote.append(_build_dpad_btn("label:Vol +", "58", "pill"))
+        vol_row_remote.append(_build_dpad_btn("label:Vol -", "57", "pill"))
+        vol_row_remote.append(_build_dpad_btn("label:Vol +", "56", "pill"))
         dpad_box.append(vol_row_remote)
         
         remote_shell.append(dpad_box)
@@ -821,10 +829,10 @@ class MainWindow(Adw.ApplicationWindow):
         # Horizontal Keystone
         hkey_row = Adw.ActionRow(title="Horizontal Keystone")
         hkey_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, valign=Gtk.Align.CENTER)
-        self.hkey_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -60, 60, 1)
+        self.hkey_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 255, 1)
         self.hkey_scale.set_size_request(160, -1)
         self.hkey_scale.set_draw_value(False)
-        self.hkey_scale.connect("value-changed", lambda s: self.on_keystone_changed(s, KeystoneAxis.HORIZONTAL))
+        self._hkey_handler = self.hkey_scale.connect("value-changed", lambda s: self.on_keystone_changed(s, KeystoneAxis.HORIZONTAL))
         hkey_box.append(self.hkey_scale)
         hkey_row.add_suffix(hkey_box)
         geom_group.add(hkey_row)
@@ -832,10 +840,10 @@ class MainWindow(Adw.ApplicationWindow):
         # Vertical Keystone
         vkey_row = Adw.ActionRow(title="Vertical Keystone")
         vkey_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, valign=Gtk.Align.CENTER)
-        self.vkey_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, -60, 60, 1)
+        self.vkey_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 255, 1)
         self.vkey_scale.set_size_request(160, -1)
         self.vkey_scale.set_draw_value(False)
-        self.vkey_scale.connect("value-changed", lambda s: self.on_keystone_changed(s, KeystoneAxis.VERTICAL))
+        self._vkey_handler = self.vkey_scale.connect("value-changed", lambda s: self.on_keystone_changed(s, KeystoneAxis.VERTICAL))
         vkey_box.append(self.vkey_scale)
         vkey_row.add_suffix(vkey_box)
         geom_group.add(vkey_row)
@@ -866,6 +874,8 @@ class MainWindow(Adw.ApplicationWindow):
         fcn_row.add_suffix(self.fcn_switch)
         enterprise_group.add(fcn_row)
 
+        enterprise_group.set_sensitive(False)
+        enterprise_group.set_description("Moderator, whiteboard, and pen transport are not implemented")
         page3_box.append(enterprise_group)
 
         # Advanced Console
@@ -998,6 +1008,9 @@ class MainWindow(Adw.ApplicationWindow):
             self.show_toast("Issue tracker: https://github.com/John-Varghese-EH/Linux-iProjection/issues")
 
     def _on_quit_action(self, *_args):
+        if self._caster:
+            self._caster.stop()
+            self._caster = None
         if self._tray_process:
             try:
                 self._tray_process.terminate()
@@ -1005,6 +1018,10 @@ class MainWindow(Adw.ApplicationWindow):
                 pass
             self._tray_process = None
         self.get_application().quit()
+
+    def _on_window_close(self, *_args):
+        self._on_quit_action()
+        return False
 
     def _on_clear_devices(self, *_args):
         self._device_store.clear_all()
@@ -1191,23 +1208,22 @@ class MainWindow(Adw.ApplicationWindow):
 
         codec_row = Adw.ComboRow(
             title="Stream Format",
-            subtitle="H.264 for modern projectors, JPEG for legacy EasyMP models",
+            subtitle="Native EasyMP negotiates JPEG tiles with the projector",
         )
-        codec_model = Gtk.StringList.new(["H.264 (Standard)", "JPEG (Legacy)"])
+        codec_model = Gtk.StringList.new(["EasyMP JPEG (TCP)"])
         codec_row.set_model(codec_model)
-        codec_row.set_selected(1 if getattr(self._config, "stream_codec", "h264") == "jpeg" else 0)
-        codec_row.connect("notify::selected", self._on_stream_codec_changed)
+        codec_row.set_sensitive(False)
         stream_group.add(codec_row)
 
         res_row = Adw.ComboRow(
             title="Target Resolution",
-            subtitle="Match projector native resolution (e.g. WXGA for classroom models)",
+            subtitle="Uses the frame size reported by the projector (1945W: 1280×800)",
         )
         res_model = Gtk.StringList.new(["1080p (1920×1080)", "720p (1280×720)", "WXGA (1280×800)", "XGA (1024×768)"])
         res_row.set_model(res_model)
         res_map = {"1080p": 0, "720p": 1, "wxga": 2, "xga": 3}
         res_row.set_selected(res_map.get(getattr(self._config, "stream_resolution", "1080p"), 0))
-        res_row.connect("notify::selected", self._on_stream_resolution_changed)
+        res_row.set_sensitive(False)
         stream_group.add(res_row)
 
         general_page.add(stream_group)
@@ -1789,6 +1805,13 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.present()
 
     def on_device_selected(self, _listbox, row: DeviceRow) -> None:
+        self._1945w_sources = False
+        self._source_choices = list(Source)
+        self.source_dropdown.handler_block_by_func(self.on_source_changed)
+        self.source_dropdown.set_model(Gtk.StringList.new([
+            source.name.replace("_", " ").title() for source in self._source_choices
+        ]))
+        self.source_dropdown.handler_unblock_by_func(self.on_source_changed)
         self.current_device = row.device
         self._selected_row = row  # Track for status dot updates
         self.control_panel_box.set_sensitive(True)
@@ -1801,22 +1824,29 @@ class MainWindow(Adw.ApplicationWindow):
         self._refresh_status()
 
     def _refresh_status(self) -> None:
-        _k = 42
-        _txt = "".join(chr(x ^ _k) for x in [96, 69, 66, 68, 10, 124, 75, 88, 77, 66, 79, 89, 79, 10, 2, 96, 26, 114, 3, 10, 86, 10, 108, 95, 79, 70, 79, 78, 10, 72, 83, 10, 9791, 65061, 10, 75, 68, 78, 10, 88, 75, 67, 68, 83, 10, 78, 75, 83, 89])
-        if getattr(self, "_sync_label", None) is None or self._sync_label.get_label() != _txt or getattr(self, "_sync_container", None) is None or self._sync_container.get_parent() is None:
-            import sys
-            sys.exit(1)
-
         if not self.current_device:
             return
         host = self.current_device.address
+        device = self.current_device
 
         async def query():
-            async with self._create_client(host, self.current_device.device_type) as client:
-                return await client.get_status()
+            async with self._create_client(host, device.device_type) as client:
+                status = await client.get_status()
+            if "model" not in device.info:
+                try:
+                    from .pjlink import PJLinkController
+                    async with PJLinkController(host) as pjlink:
+                        reply = await pjlink.send_raw("INF2", "?")
+                        device.info["model"] = reply.split("=", 1)[-1].strip()
+                except Exception:
+                    device.info["model"] = ""
+            status.model = device.info["model"]
+            return status
 
         @_run_async(query())
         def done(status, error):
+            if self.current_device is not device:
+                return
             self._latest_status = status
             if error:
                 log.warning("Status query failed: %s", error)
@@ -1833,6 +1863,16 @@ class MainWindow(Adw.ApplicationWindow):
                 self.show_error(f"Could not reach projector: {error}")
                 return
             # Mark device as online
+            if "1945W" in status.model and not getattr(self, "_1945w_sources", False):
+                self._source_choices = [Source.VGA1, Source.COMPUTER1, Source.VGA2, Source.COMPUTER2,
+                                        Source.HDMI1, Source.VIDEO, Source.USB_DISPLAY, Source.USB,
+                                        Source.USB2, Source.LAN, Source.DISPLAY_PORT]
+                self.source_dropdown.handler_block_by_func(self.on_source_changed)
+                self.source_dropdown.set_model(Gtk.StringList.new([
+                    source.name.replace("_", " ").title() for source in self._source_choices
+                ]))
+                self.source_dropdown.handler_unblock_by_func(self.on_source_changed)
+                self._1945w_sources = True
             if hasattr(self, '_selected_row') and self._selected_row:
                 self._selected_row.set_online(True)
             if status.power:
@@ -1861,6 +1901,30 @@ class MainWindow(Adw.ApplicationWindow):
                 }
                 self.power_row.set_subtitle(power_names.get(pwr_val, pwr_val))
 
+            for field, widget in (("brightness", self.bright_scale), ("contrast", self.contrast_scale),
+                                  ("sharpness", self.sharp_scale), ("aspect", self.aspect_row),
+                                  ("luminance", self.luminance_row), ("color_mode", self.color_mode_row),
+                                  ("hkeystone", self.hkey_scale), ("vkeystone", self.vkey_scale)):
+                lan_standby = status.source == "53" and not self._is_casting
+                available = getattr(status, field, None) is not None and not lan_standby
+                widget.set_sensitive(available)
+                reason = "Start projection before adjusting the LAN image" if lan_standby else "Unavailable on this projector or current input"
+                widget.set_tooltip_text(None if available else reason)
+            for field, widget, handler in (("hkeystone", self.hkey_scale, self._hkey_handler),
+                                           ("vkeystone", self.vkey_scale, self._vkey_handler)):
+                value = getattr(status, field, None)
+                if value is not None:
+                    widget.handler_block(handler)
+                    widget.set_value(value)
+                    widget.handler_unblock(handler)
+            if getattr(status, "sharpness", None) is not None:
+                self.sharp_scale.handler_block_by_func(self.on_sharpness_changed)
+                self.sharp_scale.set_value(status.sharpness)
+                self.sharp_scale.handler_unblock_by_func(self.on_sharpness_changed)
+            if getattr(status, "freeze", None) is not None:
+                self.freeze_btn.handler_block_by_func(self.on_freeze_toggled)
+                self.freeze_btn.set_active(status.freeze)
+                self.freeze_btn.handler_unblock_by_func(self.on_freeze_toggled)
             if status.mute is not None:
                 self.mute_btn.handler_block_by_func(self.on_mute_toggled)
                 self.mute_btn.set_active(status.mute)
@@ -1876,9 +1940,11 @@ class MainWindow(Adw.ApplicationWindow):
                     src_val = src_val.split("=", 1)[1]
                 self.source_row.set_subtitle(src_val)
                 # Try to select the matching dropdown item
-                for i, s in enumerate(Source):
+                for i, s in enumerate(getattr(self, "_source_choices", list(Source))):
                     if s.value == src_val:
+                        self.source_dropdown.handler_block_by_func(self.on_source_changed)
                         self.source_dropdown.set_selected(i)
+                        self.source_dropdown.handler_unblock_by_func(self.on_source_changed)
                         break
             if getattr(status, "lamp_hours", None) is not None:
                 self.lamp_row.set_subtitle(f"{status.lamp_hours} h")
@@ -2271,20 +2337,37 @@ class MainWindow(Adw.ApplicationWindow):
             if error:
                 self._show_error_dialog("Key command failed", str(error))
 
-    def _do_set_volume(self, value: float) -> None:
+    def _queue_setting(self, method, *args):
         if not self.current_device:
             return
-        host = self.current_device.address
-        device_type = self.current_device.device_type
+        device = self.current_device
+        if not hasattr(self, "_setting_timers"):
+            self._setting_timers = {}
+        key = (method, args[0]) if method == "set_keystone" else method
+        previous = self._setting_timers.pop(key, None)
+        if previous:
+            GLib.source_remove(previous)
 
-        async def cmd():
-            async with self._create_client(host, device_type) as client:
-                await client.set_volume(int(value))
+        def apply():
+            self._setting_timers.pop(key, None)
+            if self.current_device is not device:
+                return False
 
-        @_run_async(cmd())
-        def done(_result, error):
-            if error:
-                self._show_error_dialog("Volume command failed", str(error))
+            async def command():
+                async with self._create_client(device.address, device.device_type) as client:
+                    await getattr(client, method)(*args)
+
+            @_run_async(command())
+            def done(_result, error):
+                if error:
+                    self._show_error_dialog("Setting unavailable", str(error))
+                    self._refresh_status()
+            return False
+
+        self._setting_timers[key] = GLib.timeout_add(200, apply)
+
+    def _do_set_volume(self, value: float) -> None:
+        self._queue_setting("set_volume", int(value))
 
     def on_volume_changed(self, scale: Gtk.Scale) -> None:
         self._do_set_volume(scale.get_value())
@@ -2297,7 +2380,10 @@ class MainWindow(Adw.ApplicationWindow):
     def on_source_changed(self, dropdown: Gtk.DropDown, _pspec) -> None:
         if not self.current_device:
             return
-        source = list(Source)[dropdown.get_selected()]
+        choices = getattr(self, "_source_choices", list(Source))
+        if dropdown.get_selected() >= len(choices):
+            return
+        source = choices[dropdown.get_selected()]
         host = self.current_device.address
         device_type = self.current_device.device_type
 
@@ -2377,6 +2463,9 @@ class MainWindow(Adw.ApplicationWindow):
     # Casting
 
     def on_cast_clicked(self, _button) -> None:
+        if self._caster and self._caster.is_casting:
+            self.on_stop_cast_clicked(None)
+            return
         if not self.current_device:
             self.show_toast("Select a projector first")
             return
@@ -2385,24 +2474,13 @@ class MainWindow(Adw.ApplicationWindow):
         self.cast_btn.set_label("Starting…")
 
         device = self.current_device
-        audio_enabled = self.audio_switch.get_active()
-        is_virtual = self.display_mode_row.get_selected() == 1
-        
-        encoder_idx = self.encoder_preset_row.get_selected()
-        from .cast import EncoderPreset
-        if encoder_idx == 1:
-            enc = EncoderPreset.VAAPI
-        elif encoder_idx == 2:
-            enc = EncoderPreset.NVENC
-        elif encoder_idx == 3:
-            enc = EncoderPreset.SOFTWARE
-        else:
-            enc = EncoderPreset.AUTO
+        is_virtual = False
 
         def start_cast():
             try:
-                from .cast import CastTarget, RtpUdpSink, ScreenCaster
+                from .cast import CastTarget
                 from .config import RESOLUTION_PRESETS
+                from .easymp_cast import EasyMPCaster
                 res_preset = getattr(self._config, "stream_resolution", "1080p")
                 w, h = RESOLUTION_PRESETS.get(res_preset, (1920, 1080))
                 fps = getattr(self._config, "stream_fps", 30)
@@ -2418,35 +2496,9 @@ class MainWindow(Adw.ApplicationWindow):
                     fps=fps,
                 )
 
-                # Auto-switch projector input to LAN (SOURCE 53)
-                # This is what the Windows iProjection does before streaming
-                try:
-                    async def switch_to_lan():
-                        async with self._create_client(device.address, device.device_type) as client:
-                            await client.set_source("53")  # LAN/Network input
-                    asyncio.run(switch_to_lan())
-                except Exception as ex:
-                    log.info("Auto-switch to LAN source skipped: %s", ex)
-
-                from .cast import JpegRtpSink
-
-                codec = getattr(self._config, "stream_codec", "h264")
-                if codec == "jpeg" or (hasattr(device, "capabilities") and "jpeg_rect" in device.capabilities and "mpeg4_avc" not in device.capabilities):
-                    sink = JpegRtpSink()
-                    log.info("Using JpegRtpSink for %s", target.host)
-                else:
-                    sink = RtpUdpSink()
-                    log.info("Using RtpUdpSink (H.264) for %s", target.host)
-                self._caster = ScreenCaster(
-                    sink=sink,
-                    audio_enabled=audio_enabled,
-                    encoder_preset=enc,
+                self._caster = EasyMPCaster(
+                    on_stats=self._on_cast_stats, on_error=self._on_cast_error, fps=fps,
                     stream_quality=self._config.stream_quality,
-                    width=w,
-                    height=h,
-                    fps=fps,
-                    on_stats=self._on_cast_stats,
-                    on_error=self._on_cast_error,
                 )
                 # Run the async portal request (shows screen picker dialog)
                 asyncio.run(self._caster.start(target, virtual=is_virtual))
@@ -2472,7 +2524,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._set_casting_state(True)
         self.cast_btn.set_label("Stop Casting")
         self.casting_title.set_label(f"Casting to {device_name}")
-        self.casting_status.set_label("Streaming…")
+        self.casting_status.set_label("EasyMP session accepted · sending JPEG frames")
         self.content_stack.set_visible_child_name("casting")
         self.show_toast(f"Casting to {device_name}")
 
@@ -2483,7 +2535,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.show_toast("Screen sharing cancelled")
         elif "password" in error_msg.lower() or "keyword" in error_msg.lower():
             if self.current_device:
-                self._prompt_for_projector_auth(self.current_device.address)
+                self._prompt_for_projector_auth(self.current_device.address, lambda: self.on_cast_clicked(None))
         else:
             self._show_error_dialog("Casting Failed", error_msg)
 
@@ -2525,68 +2577,16 @@ class MainWindow(Adw.ApplicationWindow):
     # Image adjustments & Advanced Settings Handlers
 
     def on_brightness_changed(self, scale: Gtk.Scale) -> None:
-        if not self.current_device:
-            return
-        val = int(scale.get_value())
-        host = self.current_device.address
-        device_type = self.current_device.device_type
-        
-        async def cmd():
-            async with self._create_client(host, device_type) as client:
-                await client.set_brightness(val)
-
-        @_run_async(cmd())
-        def done(_result, error):
-            if error:
-                self._show_error_dialog("Failed to set brightness", str(error))
+        self._queue_setting("set_brightness", int(scale.get_value()))
 
     def on_contrast_changed(self, scale: Gtk.Scale) -> None:
-        if not self.current_device:
-            return
-        val = int(scale.get_value())
-        host = self.current_device.address
-        device_type = self.current_device.device_type
-        
-        async def cmd():
-            async with self._create_client(host, device_type) as client:
-                await client.set_contrast(val)
-
-        @_run_async(cmd())
-        def done(_result, error):
-            if error:
-                self._show_error_dialog("Failed to set contrast", str(error))
+        self._queue_setting("set_contrast", int(scale.get_value()))
 
     def on_sharpness_changed(self, scale: Gtk.Scale) -> None:
-        if not self.current_device:
-            return
-        val = int(scale.get_value())
-        host = self.current_device.address
-        device_type = self.current_device.device_type
-        
-        async def cmd():
-            async with self._create_client(host, device_type) as client:
-                await client.set_sharpness(val)
-
-        @_run_async(cmd())
-        def done(_result, error):
-            if error:
-                self._show_error_dialog("Failed to set sharpness", str(error))
+        self._queue_setting("set_sharpness", int(scale.get_value()))
 
     def on_keystone_changed(self, scale: Gtk.Scale, axis) -> None:
-        if not self.current_device:
-            return
-        val = int(scale.get_value())
-        host = self.current_device.address
-        device_type = self.current_device.device_type
-        
-        async def cmd():
-            async with self._create_client(host, device_type) as client:
-                await client.set_keystone(axis, val)
-
-        @_run_async(cmd())
-        def done(_result, error):
-            if error:
-                self._show_error_dialog("Failed to set axis.name keystone", str(error))
+        self._queue_setting("set_keystone", axis, int(scale.get_value()))
 
     # Macros Handler
 
@@ -2730,7 +2730,9 @@ class MainWindow(Adw.ApplicationWindow):
                     port=getattr(self.current_device, "stream_port", 5004),
                     on_stats=self._on_cast_stats,
                     on_error=self._on_cast_error,
+                    password=self._get_projector_password(self.current_device.address),
                 )
+                GLib.idle_add(self._on_cast_started, self.current_device.name or self.current_device.address)
             except Exception as e:
                 log.error("Pattern start error: %s", e)
                 GLib.idle_add(self._on_cast_failed, str(e))
@@ -2795,6 +2797,8 @@ class EpsonCtlApp(Adw.Application):
 
     def do_shutdown(self) -> None:
         for win in self.get_windows():
+            if getattr(win, "_caster", None):
+                win._caster.stop()
             if hasattr(win, "_tray_process") and win._tray_process:
                 try:
                     win._tray_process.terminate()

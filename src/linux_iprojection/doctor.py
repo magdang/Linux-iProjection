@@ -466,7 +466,7 @@ def run_diagnostics() -> DoctorReport:
             name="UFW Firewall",
             status="warning",
             message="UFW is active.",
-            details="Ensure ports 3629 (TCP), 4352 (TCP), and 5004/5006 (UDP) are allowed.",
+            details="EasyMP uses outbound TCP 3620/3621; control uses TCP 3629/4352. Raw RTP receivers use UDP 5004/5006.",
             remedy="Run 'linux-iprojection firewall' to automatically permit required ports.",
         ))
     elif is_firewalld_active():
@@ -475,7 +475,7 @@ def run_diagnostics() -> DoctorReport:
             name="Firewalld",
             status="warning",
             message="Firewalld is active.",
-            details="Ensure ports 3629 (TCP), 4352 (TCP), and 5004/5006 (UDP) are allowed.",
+            details="EasyMP uses outbound TCP 3620/3621; control uses TCP 3629/4352. Raw RTP receivers use UDP 5004/5006.",
             remedy="Run 'linux-iprojection firewall' to automatically configure firewalld.",
         ))
     else:

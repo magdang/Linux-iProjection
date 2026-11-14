@@ -25,15 +25,22 @@ class UnifiedStatus:
     mute: bool = False
     volume: int = 0
     serial: str = ""
-    brightness: int = 0
-    contrast: int = 0
-    sharpness: int = 0
+    brightness: int | None = None
+    contrast: int | None = None
+    sharpness: int | None = None
     color_temp: str = ""
     filter_hours: int = 0
     projector_name: str = ""
     signal_present: bool = False
     input_resolution: str = ""
     errors_decoded: dict | None = None
+    freeze: bool | None = None
+    color_mode: str | None = None
+    aspect: str | None = None
+    luminance: str | None = None
+    hkeystone: int | None = None
+    vkeystone: int | None = None
+    model: str = ""
 
     @property
     def power_is_on(self) -> bool:
@@ -322,6 +329,10 @@ class ProjectorClient:
                 s.source = getattr(raw, "source", None) or ""
                 s.lamp_hours = getattr(raw, "lamp_hours", None) or 0
                 s.errors = getattr(raw, "errors", getattr(raw, "error", None)) or ""
+                for field in ("freeze", "color_mode", "aspect", "luminance", "volume", "hkeystone", "vkeystone"):
+                    value = getattr(raw, field, None)
+                    if value is not None:
+                        setattr(s, field, value)
 
                 if getattr(raw, "muted", None) is not None:
                     s.mute = raw.muted
@@ -343,13 +354,13 @@ class ProjectorClient:
                     s.errors_decoded = raw.errors_decoded
 
                 # Only query fields NOT already populated by get_status()
-                if not s.mute:
+                if getattr(raw, "muted", None) is None:
                     try:
                         if hasattr(self._client, "get_mute"):
                             s.mute = await self._client.get_mute()
                     except Exception:
                         pass
-                if s.volume == 0:
+                if getattr(raw, "volume", None) is None:
                     try:
                         if hasattr(self._client, "query_volume"):
                             s.volume = await self._client.query_volume()

@@ -72,6 +72,9 @@ class Source(str, Enum):
     LAN = "53"  # LAN/Network
     WIRELESS_HDMI = "56"  # Wireless HDMI (e.g. EB-1430Wi)
     HDMI2 = "A0"  # HDMI 2
+    USB_DISPLAY = "51"
+    USB2 = "54"
+    DISPLAY_PORT = "70"
     HDBASET = "80"  # HDBaseT (commercial models)
     IPROJECTION_1 = "F1"  # iProjection virtual source 1
     IPROJECTION_2 = "F2"  # iProjection virtual source 2
@@ -82,14 +85,14 @@ class ColorMode(str, Enum):
     PRESENTATION = "04"
     THEATRE = "05"
     DYNAMIC = "06"
-    BLACKBOARD = "0B"
-    WHITEBOARD = "0C"
+    BLACKBOARD = "11"
+    WHITEBOARD = "12"
 
 
 class AspectRatio(str, Enum):
-    AUTO = "00"
-    NORMAL = "20"
-    WIDE = "30"
+    AUTO = "30"
+    NORMAL = "00"
+    WIDE = "20"
     FULL = "40"
     ZOOM = "50"
 
@@ -126,21 +129,21 @@ class RemoteKey(str, Enum):
     Usage: client.send_key(RemoteKey.MENU)
     """
     POWER = "01"
-    MENU = "35"
-    ENTER = "36"
-    ESCAPE = "37"
-    UP = "58"
-    DOWN = "59"
-    LEFT = "5A"
-    RIGHT = "5B"
-    PAGE_UP = "45"
-    PAGE_DOWN = "46"
-    A_V_MUTE = "47"
-    FREEZE = "44"
+    MENU = "03"
+    ENTER = "16"
+    ESCAPE = "05"
+    UP = "35"
+    DOWN = "36"
+    LEFT = "37"
+    RIGHT = "38"
+    PAGE_UP = "68"
+    PAGE_DOWN = "69"
+    A_V_MUTE = "3E"
+    FREEZE = "47"
     VOLUME_UP = "56"
     VOLUME_DOWN = "57"
     HOME = "48"
-    SOURCE_SEARCH = "49"
+    SOURCE_SEARCH = "48"
     AUTO = "4A"
     ASPECT = "4B"
     COLOR_MODE = "4C"
@@ -183,6 +186,8 @@ class ProjectorStatus:
     aspect: str | None = None
     luminance: str | None = None
     volume: int | None = None
+    hkeystone: int | None = None
+    vkeystone: int | None = None
 
     @property
     def errors(self) -> str | None:
@@ -418,6 +423,8 @@ class EscVpNetClient:
         return reply
 
     async def set_source(self, source: Source | str) -> None:
+        if isinstance(source, str) and source in Source.__members__:
+            source = Source[source]
         val = getattr(source, "value", str(source))
         await self.send(f"SOURCE {val}")
 
@@ -476,6 +483,8 @@ class EscVpNetClient:
         await self.send(f"KEY {hex_code}")
 
     async def set_color_mode(self, mode: ColorMode | str) -> None:
+        if isinstance(mode, str) and mode in ColorMode.__members__:
+            mode = ColorMode[mode]
         val = getattr(mode, "value", str(mode))
         await self.send(f"CMODE {val}")
 
@@ -486,6 +495,8 @@ class EscVpNetClient:
         return reply
 
     async def set_aspect_ratio(self, aspect: AspectRatio | str) -> None:
+        if isinstance(aspect, str) and aspect in AspectRatio.__members__:
+            aspect = AspectRatio[aspect]
         val = getattr(aspect, "value", str(aspect))
         await self.send(f"ASPECT {val}")
 
@@ -496,6 +507,8 @@ class EscVpNetClient:
         return reply
 
     async def set_luminance(self, mode: LuminanceMode | str) -> None:
+        if isinstance(mode, str) and mode in LuminanceMode.__members__:
+            mode = LuminanceMode[mode]
         val = getattr(mode, "value", str(mode))
         await self.send(f"LUMINANCE {val}")
 
@@ -619,6 +632,11 @@ class EscVpNetClient:
             status.volume = await self.query_volume()
         except ProjectorError:
             pass
+        for axis, field in ((KeystoneAxis.HORIZONTAL, "hkeystone"), (KeystoneAxis.VERTICAL, "vkeystone")):
+            try:
+                setattr(status, field, await self.get_keystone(axis))
+            except ProjectorError:
+                pass
         return status
 
     async def set_brightness(self, level: int) -> None:
@@ -697,11 +715,13 @@ class EscVpNetClient:
         return 0
 
     async def set_sharpness(self, level: int) -> None:
-        """Set sharpness (0-5)."""
-        await self.send(f"SHARPNESS {level}")
+        """Set Epson sharpness on its 0-255 wire scale."""
+        if not 0 <= level <= 255:
+            raise ValueError("Sharpness must be between 0 and 255")
+        await self.send(f"SHARP {level}")
 
     async def get_sharpness(self) -> int:
-        reply = await self.send("SHARPNESS?")
+        reply = await self.send("SHARP?")
         if "=" in reply:
             try:
                 return int(reply.split("=", 1)[1].strip())
@@ -754,7 +774,9 @@ class EscVpNetClient:
         return reply
 
     async def set_keystone(self, axis: KeystoneAxis, value: int) -> None:
-        """Set keystone correction (-60 to +60)."""
+        """Set keystone on Epson's 0-255 wire scale."""
+        if not 0 <= value <= 255:
+            raise ValueError("Keystone must be between 0 and 255")
         cmd = f"{axis.value}KEYSTONE {value}"
         await self.send(cmd)
 

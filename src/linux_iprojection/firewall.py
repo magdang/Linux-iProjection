@@ -9,6 +9,8 @@ import subprocess
 log = logging.getLogger(__name__)
 
 REQUIRED_PORTS = [
+    ("3620", "tcp", "EasyMP Session Control"),
+    ("3621", "tcp", "EasyMP JPEG Video"),
     ("3629", "tcp", "ESC/VP.net Projector Control"),
     ("4352", "tcp", "PJLink Control"),
     ("3620", "udp", "EEMP Discovery Broadcast"),

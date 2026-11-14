@@ -1059,16 +1059,21 @@ def start_test_pattern(
     port: int = 5004,
     on_stats: Any = None,
     on_error: Any = None,
-) -> ScreenCaster:
+    password: str = "",
+):
     """Convenience helper to create and start a ScreenCaster with a test pattern.
 
     Works whether or not an asyncio event loop is already running.
     """
-    target = CastTarget(host=host, port=port, name="Test Pattern")
-    caster = ScreenCaster(sink=RtpUdpSink(), on_stats=on_stats, on_error=on_error)
+    from .easymp_cast import EasyMPCaster
+    from .protocol import ProjectorError
+
+    target = CastTarget(host=host, port=port, name="Test Pattern", password=password)
+    caster = EasyMPCaster(on_stats=on_stats, on_error=on_error)
 
     async def _start():
-        await caster.start_test_pattern(target, pattern=pattern_name.lower())
+        if not await caster.start_test_pattern(target, pattern=pattern_name.lower()):
+            raise ProjectorError(caster.last_error or "EasyMP test pattern failed")
 
     try:
         loop = asyncio.get_running_loop()
