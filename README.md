@@ -12,7 +12,7 @@
 
 A native Linux application for controlling and casting to Epson projectors. Provides complete network control via ESC/VP.net, PJLink, and EShare protocols, featuring a GTK4/libadwaita interface alongside a full-featured CLI for scripting.
 
-If you are looking for **Epson iProjection for Linux**, this open-source client provides a comprehensive alternative to the official Epson projector software/driver, enabling seamless screen mirroring and remote control natively on Linux distributions.
+**Local EasyMP development branch:** native TCP JPEG projection is hardware-tested on an EB/PowerLite 1945W. See [the model support audit](docs/EB1945W_SUPPORT.md) for verified controls and remaining limitations. Native audio, virtual monitor creation, encryption, and collaboration transports are not implemented.
 
 ## Core Capabilities
 
@@ -20,7 +20,7 @@ If you are looking for **Epson iProjection for Linux**, this open-source client 
 * **CLI Automation:** Command line interface for shell scripts and remote administration over SSH.
 * **Network Auto-Discovery:** Automatic detection of network projectors via mDNS and LAN probing.
 * **Diagnostics & Monitoring:** Live hardware monitoring for lamp hours, power state, input sources, and error logs.
-* **PipeWire Screen Casting:** Low-latency desktop screen mirroring over RTP/UDP using PipeWire and XDG Desktop Portal.
+* **Native EasyMP Screen Casting:** desktop capture through PipeWire/XDG Desktop Portal, negotiated JPEG tiles over TCP 3621, and session control on TCP 3620. Raw RTP remains an explicit CLI option for compatible receivers.
 * **PJLink Security:** Authentication support for password-protected projectors.
 
 <img src="screenshots/iProjection_Screenshot_01_J0X.png" align="center" alt="iProjection GUI"/>

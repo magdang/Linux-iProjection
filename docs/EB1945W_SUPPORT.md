@@ -54,7 +54,7 @@ video configuration, JPEG decoding, heartbeat, and acknowledged disconnect.
 | Screen/window mirror | Native legacy EasyMP TCP JPEG replaces the unacknowledged RTP default. Desktop capture requires user consent. |
 | Test patterns | Uses the same native transport and negotiated dimensions. A failed session cannot show a successful streaming state. |
 | Stop / Quit / window close | Stops capture and sends native disconnect. Closing the window now quits instead of leaving a hidden client holding projector sockets. |
-| Power | Existing `PWR ON/OFF`; hardware power cycling deliberately excluded from validation. |
+| Power / device-info wake button | Device-info action now uses actual network power-on rather than an unverified Wake-on-LAN magic packet. Existing `PWR ON/OFF`; hardware power cycling deliberately excluded from validation. |
 | Input | Model-specific source list omits nonexistent HDMI2/S-Video inputs; source status synchronization blocks its change handler. |
 | Volume / mute / freeze | Read, set to current value, and read back successfully on hardware. Zero volume and false booleans survive status mapping. |
 | Brightness / contrast / sharpness | Read/set-current/read passed during native projection. Sharpness uses `SHARP`, not `SHARPNESS`. |
@@ -81,10 +81,10 @@ The user-provided four-digit keyword is validated and encoded, but keyword-
 protected hardware has not been tested. There is no guessing, authentication
 bypass, or automatic session takeover. Other projector models are unverified.
 
-The legacy discovery implementation's 64-byte UDP request and capability-bit
-assumptions have not been established by this hardware test. They must not be
-used as evidence that raw RTP or WebRTC is supported. Native casting reads real
-TCP capabilities instead.
+Removed the legacy discovery implementation's unverified 64-byte UDP request
+and guessed capability bits. Discovery now validates TCP registration and
+reports the real JPEG frame size. Native casting validates those capabilities
+again before connecting.
 
 Full frames are intentionally sent initially; changed-region updates are a
 performance follow-up, not necessary for correct projection. Native audio,

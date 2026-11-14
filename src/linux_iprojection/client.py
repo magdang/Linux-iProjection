@@ -29,9 +29,9 @@ class UnifiedStatus:
     contrast: int | None = None
     sharpness: int | None = None
     color_temp: str = ""
-    filter_hours: int = 0
+    filter_hours: int | None = None
     projector_name: str = ""
-    signal_present: bool = False
+    signal_present: bool | None = None
     input_resolution: str = ""
     errors_decoded: dict | None = None
     freeze: bool | None = None
@@ -128,7 +128,7 @@ def wake_on_lan(ip: str) -> bool:
 class ProjectorClient:
     """Unified facade for ESC/VP.net and PJLink clients."""
 
-    def __init__(self, host: str, device_type: str = "projector", port: int | None = None, password: str = ""):
+    def __init__(self, host: str, device_type: str = "projector", port: int | None = None, password: str = "", connection_timeout: float | None = None):
         self.host = host
         self.device_type = device_type
         self.port = port
@@ -136,7 +136,7 @@ class ProjectorClient:
         if device_type == "pjlink_projector":
             self._client = PJLinkController(host, port=port or 4352, password=password)
         else:
-            self._client = EscVpNetClient(host, port=port or 3629, password=password)
+            self._client = EscVpNetClient(host, port=port or 3629, password=password, connection_timeout=connection_timeout)
 
     async def __aenter__(self):
         await self._client.connect()

@@ -195,3 +195,22 @@ async def test_discover_by_scan_filters_arp_to_active_networks():
         assert "10.0.0.5" not in probed_ips
         assert "192.168.1.50" in probed_ips
 
+
+@pytest.mark.asyncio
+async def test_easymp_discovery_uses_verified_tcp_capabilities(mocker):
+    from linux_iprojection.discovery import discover_eemp
+    from linux_iprojection.easymp import ProjectorIdentity
+
+    device = DiscoveredDevice("127.0.0.1", "127.0.0.1", 3620, "scan")
+    scan = mocker.patch("linux_iprojection.discovery.discover_by_scan", return_value=[device])
+    client = mocker.patch("linux_iprojection.easymp.EasyMPClient")
+    client.return_value.inspect.return_value = ProjectorIdentity(name=b"TEST1945W", width=1280, height=800, jpeg=True)
+    result = await discover_eemp()
+    scan.assert_awaited_once_with(ports=[3620])
+    assert len(result) == 1
+    assert result[0].name == "TEST1945W"
+    assert result[0].info == {"streaming_mode": "easymp", "frame_size": [1280, 800]}
+    assert result[0].stream_port == 3621
+    client.return_value.inspect.side_effect = OSError("not an Epson session")
+    assert await discover_eemp() == []
+

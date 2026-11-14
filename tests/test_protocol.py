@@ -508,8 +508,21 @@ async def test_1945w_commands_and_macro_names(mocker):
     await client.set_luminance("NORMAL")
     client.send.assert_awaited_with("LUMINANCE 00")
     assert [RemoteKey.MENU.value, RemoteKey.ENTER.value, RemoteKey.ESCAPE.value] == ["03", "16", "05"]
+    await client.send_key(RemoteKey.MENU)
+    client.send.assert_awaited_with("KEY 03")
     with pytest.raises(ValueError):
         await client.set_keystone(KeystoneAxis.VERTICAL, -1)
+
+
+@pytest.mark.asyncio
+async def test_handshake_reset_is_closed_and_normalized(handshake_connection):
+    _, writer = handshake_connection
+    writer.drain.side_effect = ConnectionResetError("peer reset")
+    client = EscVpNetClient("127.0.0.1", connection_timeout=2)
+    assert client.connection_timeout == 2
+    with pytest.raises(ProjectorUnreachableError, match="peer reset"):
+        await client.connect()
+    writer.close.assert_called_once()
 
 
         

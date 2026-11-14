@@ -341,189 +341,30 @@ async def discover_by_scan(
     return discovered
 
 
-# ── Epson Proprietary EEMP UDP Broadcast Discovery ──────────────────────────
-#
-# Reverse-engineered from EMP_PJCON.dll and EMP_NMANG.dll.
-# The Windows iProjection app broadcasts UDP packets with magic bytes
-# "EEMP" + "0100" on port 3620. Epson projectors on the LAN respond
-# with their capabilities and identification data.
-
-EEMP_MAGIC = b"EEMP"
-EEMP_VERSION = b"0100"
-EEMP_DISCOVERY_PORT = 3620
-EEMP_RESPONSE_PORT = 3621
-
-
-def _build_eemp_discovery_packet() -> bytes:
-    """Build an EEMP discovery broadcast packet.
-
-    Packet structure (derived from binary analysis of EMP_NMANG.dll):
-    - Bytes 0-3:  Magic "EEMP"
-    - Bytes 4-7:  Version "0100"
-    - Bytes 8-63: Padding/reserved (zeroes)
-    Total: 64 bytes
-    """
-    packet = bytearray(64)
-    packet[0:4] = EEMP_MAGIC
-    packet[4:8] = EEMP_VERSION
-    log.debug("Built EEMP discovery packet (%d bytes)", len(packet))
-    return bytes(packet)
-
-
-def _parse_eemp_response(data: bytes, addr: tuple) -> DiscoveredDevice | None:
-    """Parse an EEMP discovery response from a projector.
-
-    The response begins with "EEMP" magic bytes followed by capability
-    and identification data. Reverse-engineered from EMP_PJCON.dll /
-    EMP_NMANG.dll binary analysis.
-    """
-    if len(data) < 8 or data[:4] != EEMP_MAGIC:
-        return None
-
-    ip = addr[0]
-
-    if log.isEnabledFor(logging.DEBUG):
-        hex_str = " ".join(f"{b:02x}" for b in data[:64])
-        log.debug("EEMP response from %s (%d bytes): %s%s",
-                  ip, len(data), hex_str,
-                  "..." if len(data) > 64 else "")
-
-    # Extract projector name from response if present
-    # The name is typically embedded as a null-terminated ASCII string
-    name = f"EPSON Projector ({ip})"
-    firmware_version = ""
-    try:
-        # Look for readable ASCII strings after the header
-        text_region = data[16:]
-        ascii_parts = []
-        current = bytearray()
-        for b in text_region:
-            if 0x20 <= b <= 0x7E:
-                current.append(b)
-            else:
-                if len(current) >= 3:
-                    ascii_parts.append(current.decode("ascii"))
-                current = bytearray()
-        if len(current) >= 3:
-            ascii_parts.append(current.decode("ascii"))
-        if ascii_parts:
-            name = ascii_parts[0]
-        # Second string is often firmware version
-        if len(ascii_parts) >= 2:
-            firmware_version = ascii_parts[1]
-    except Exception:
-        pass
-
-    # Parse capability flags from known byte positions
-    # Derived from EMP_PJCON.dll capability flag parsing
-    capabilities = ["eemp_discovery"]
-    streaming_mode = "rtp"  # default to raw RTP push
-    try:
-        if len(data) > 16:
-            cap_byte = data[16]
-            if cap_byte & 0x01:
-                capabilities.append("jpeg_rect")
-            if cap_byte & 0x02:
-                capabilities.append("mpeg4_avc")
-            if cap_byte & 0x04:
-                capabilities.append("audio")
-            if cap_byte & 0x08:
-                capabilities.append("aes_encryption")
-            if cap_byte & 0x10:
-                capabilities.append("moderator")
-            if cap_byte & 0x20:
-                capabilities.append("webrtc")
-                streaming_mode = "webrtc"
-            if cap_byte & 0x40:
-                capabilities.append("whiteboard")
-        if len(data) > 17:
-            cap2 = data[17]
-            if cap2 & 0x01:
-                capabilities.append("interactive_pen")
-            if cap2 & 0x02:
-                capabilities.append("split_screen")
-    except Exception:
-        pass
-
-    info_dict = {
-        "discovery": "eemp",
-        "raw_len": len(data),
-        "streaming_mode": streaming_mode,
-    }
-    if firmware_version:
-        info_dict["firmware"] = firmware_version
-        capabilities.append(f"fw:{firmware_version}")
-
-    return DiscoveredDevice(
-        name=name,
-        address=ip,
-        port=ESCVP_PORT,
-        source="eemp",
-        device_type="projector",
-        capabilities=capabilities,
-        stream_port=5004,
-        audio_port=5006,
-        info=info_dict,
-    )
-
-
+# Native EasyMP identity and JPEG capabilities (TCP registration).
 async def discover_eemp(timeout: float = 2.0) -> list[DiscoveredDevice]:
-    """Discover Epson projectors via the proprietary EEMP UDP broadcast protocol.
+    """Validate EasyMP devices with real TCP registration, not guessed UDP flags."""
+    from .easymp import EasyMPClient
+    from .protocol import ProjectorError
 
-    Sends a broadcast packet on port 3620 and listens for responses on port 3621,
-    matching the behavior observed in the Windows iProjection software.
-    """
-    results: list[DiscoveredDevice] = []
-    packet = _build_eemp_discovery_packet()
+    devices = await discover_by_scan(ports=[3620])
+    limit = asyncio.Semaphore(8)
 
-    loop = asyncio.get_running_loop()
-
-    class EempProtocol(asyncio.DatagramProtocol):
-        def __init__(self):
-            self.transport = None
-
-        def connection_made(self, transport):
-            self.transport = transport
-
-        def datagram_received(self, data, addr):
-            device = _parse_eemp_response(data, addr)
-            if device:
-                log.info("EEMP discovery: found %s at %s", device.name, device.address)
-                results.append(device)
-
-    try:
-        try:
-            transport, protocol = await loop.create_datagram_endpoint(
-                EempProtocol,
-                local_addr=("0.0.0.0", EEMP_RESPONSE_PORT),
-                allow_broadcast=True,
-            )
-        except OSError:
-            # Fall back to ephemeral port if 3621 is occupied
-            transport, protocol = await loop.create_datagram_endpoint(
-                EempProtocol,
-                local_addr=("0.0.0.0", 0),
-                allow_broadcast=True,
+    async def identify(device):
+        async with limit:
+            try:
+                client = EasyMPClient(device.address)
+                identity = await asyncio.wait_for(asyncio.to_thread(client.inspect), timeout)
+            except (OSError, ProjectorError, ValueError):
+                return None
+            return DiscoveredDevice(
+                name=identity.name.decode("utf-8", errors="replace"),
+                address=device.address, port=ESCVP_PORT, source="eemp",
+                capabilities=["easymp", "jpeg_tiles"], stream_port=3621, audio_port=3621,
+                info={"streaming_mode": "easymp", "frame_size": [identity.width, identity.height]},
             )
 
-        try:
-            # Broadcast on all interfaces
-            transport.sendto(packet, ("255.255.255.255", EEMP_DISCOVERY_PORT))
-            # Also try common subnet broadcasts
-            for net in _local_ipv4_networks():
-                try:
-                    broadcast = str(net.broadcast_address)
-                    transport.sendto(packet, (broadcast, EEMP_DISCOVERY_PORT))
-                except Exception:
-                    pass
-
-            await asyncio.sleep(timeout)
-        finally:
-            transport.close()
-    except Exception as e:
-        log.debug("EEMP discovery error: %s", e)
-
-    return results
+    return [device for device in await asyncio.gather(*(identify(d) for d in devices)) if device]
 
 
 async def discover_all(mdns_timeout: float = 3.0) -> list[DiscoveredDevice]:
@@ -536,8 +377,8 @@ async def discover_all(mdns_timeout: float = 3.0) -> list[DiscoveredDevice]:
     )
 
     seen: dict[str, DiscoveredDevice] = {}
-    # Priority: mDNS > EEMP > scan (mDNS has friendly names, EEMP has capabilities)
-    for d in [*mdns_results, *eemp_results, *scan_results]:
+    # Priority: verified EasyMP > mDNS > port scan.
+    for d in [*eemp_results, *mdns_results, *scan_results]:
         if d.address not in seen or seen[d.address].source == "scan":
             seen[d.address] = d
     return list(seen.values())

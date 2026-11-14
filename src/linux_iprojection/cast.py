@@ -351,7 +351,7 @@ async def _request_portal_stream(virtual: bool = False) -> tuple[int, str]:
                     session_handle,
                     {
                         "types": GLib.Variant("u", 4 if virtual else 3),  # 4=Virtual, 3=Monitor+Window
-                        "cursor_mode": GLib.Variant("u", 2),  # 2 = metadata
+                        "cursor_mode": GLib.Variant("u", 2),  # 2 = embedded cursor
                         "handle_token": GLib.Variant("s", req2),
                     },
                 ),

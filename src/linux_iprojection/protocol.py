@@ -205,10 +205,13 @@ class EscVpNetClient:
     convenience one-shot helper.
     """
 
-    def __init__(self, host: str, port: int = ESCVP_PORT, password: str = ""):
+    def __init__(self, host: str, port: int = ESCVP_PORT, password: str = "", connection_timeout: float | None = None):
         self.host = host
         self.port = port
         self.password = password
+        self.connection_timeout = CONNECT_TIMEOUT if connection_timeout is None else connection_timeout
+        if not 0 < self.connection_timeout <= 120:
+            raise ValueError("Connection timeout must be greater than zero and at most 120 seconds")
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._keepalive_task: asyncio.Task | None = None
@@ -233,7 +236,7 @@ class EscVpNetClient:
         try:
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port),
-                timeout=CONNECT_TIMEOUT,
+                timeout=self.connection_timeout,
             )
         except (OSError, asyncio.TimeoutError) as e:
             raise ProjectorError(f"Could not reach {self.host}:{self.port}: {e}") from e
@@ -242,7 +245,7 @@ class EscVpNetClient:
         await self._writer.drain()
         try:
             reply = await asyncio.wait_for(
-                self._reader.readexactly(len(HANDSHAKE)), timeout=CONNECT_TIMEOUT
+                self._reader.readexactly(len(HANDSHAKE)), timeout=self.connection_timeout
             )
         except (asyncio.IncompleteReadError, asyncio.TimeoutError) as e:
             raise ProjectorError(f"Handshake with {self.host} failed: {e}") from e
@@ -288,7 +291,7 @@ class EscVpNetClient:
             try:
                 await self._attempt_connect()
                 return
-            except ProjectorError as e:
+            except (ProjectorError, OSError) as e:
                 await self.close()
                 retries += 1
                 if retries == MAX_RETRIES:
@@ -478,9 +481,9 @@ class EscVpNetClient:
     async def send_key(self, hex_code: str) -> None:
         """
         Send a remote control key simulation command.
-        Example hex_codes: '35' (Menu), '36' (Enter), '58' (Up), '59' (Down).
+        EB-1945W main-key examples: '03' (Menu), '16' (Enter), '35' (Up).
         """
-        await self.send(f"KEY {hex_code}")
+        await self.send(f"KEY {getattr(hex_code, 'value', hex_code)}")
 
     async def set_color_mode(self, mode: ColorMode | str) -> None:
         if isinstance(mode, str) and mode in ColorMode.__members__:

@@ -180,7 +180,7 @@ class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application):
         super().__init__(
             application=app,
-            title="iProjection (Unofficial)",
+            title="iProjection (Patched EasyMP)",
             default_width=820,
             default_height=620,
         )
@@ -1250,8 +1250,8 @@ class MainWindow(Adw.ApplicationWindow):
         network_group = Adw.PreferencesGroup(title="Network Settings")
 
         timeout_row = Adw.SpinRow(
-            title="Connection Timeout (seconds)",
-            subtitle="Max time to wait when connecting to a projector",
+            title="ESC/VP Connection Timeout (seconds)",
+            subtitle="Max time for the projector control connection and handshake",
             adjustment=Gtk.Adjustment(
                 value=self._config.connection_timeout, lower=1, upper=60, step_increment=1
             ),
@@ -1761,7 +1761,9 @@ class MainWindow(Adw.ApplicationWindow):
     def _create_client(self, host: str, device_type: str = "projector") -> ProjectorClient:
         """Create a ProjectorClient initialized with the projector's password/keyword."""
         pwd = self._get_projector_password(host)
-        return ProjectorClient(host, device_type=device_type, password=pwd)
+        port = None if device_type == "pjlink_projector" else self._config.default_port
+        return ProjectorClient(host, device_type=device_type, port=port, password=pwd,
+                               connection_timeout=self._config.connection_timeout)
 
     def _prompt_for_projector_auth(self, host: str, on_success=None) -> None:
         """Display an authentication modal dialog for 4-digit keyword or password."""
@@ -2063,8 +2065,8 @@ class MainWindow(Adw.ApplicationWindow):
         # Actions Group
         action_group = Adw.PreferencesGroup()
 
-        wol_row = Adw.ActionRow(title="Wake-on-LAN", subtitle="Wake projector from deep standby")
-        wol_btn = Gtk.Button(label="Wake", valign=Gtk.Align.CENTER)
+        wol_row = Adw.ActionRow(title="Network Power On", subtitle="Requires network standby enabled on the projector")
+        wol_btn = Gtk.Button(label="Power On", valign=Gtk.Align.CENTER)
         wol_btn.connect("clicked", self._on_wol_clicked)
         wol_row.add_suffix(wol_btn)
         wol_row.set_activatable_widget(wol_btn)
@@ -2114,22 +2116,19 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_wol_clicked(self, _button) -> None:
         if not self.current_device:
             return
-        self.show_toast(f"Broadcasting Wake-on-LAN magic packet for {self.current_device.address}...")
+        device = self.current_device
 
-        # Run in background
-        from .client import wake_on_lan
+        async def power_on():
+            async with self._create_client(device.address, device.device_type) as client:
+                await client.power_on()
 
-        def run_wol():
-            success = wake_on_lan(self.current_device.address)
-            GLib.idle_add(
-                lambda: self.show_toast(
-                    "Wake packet sent." if success else "Failed to send wake packet."
-                )
-            )
-
-        import threading
-
-        threading.Thread(target=run_wol, daemon=True).start()
+        @_run_async(power_on())
+        def done(_result, error):
+            if error:
+                self._show_error_dialog("Network power on failed", str(error))
+            else:
+                self.show_toast("Power on requested; network standby must be enabled on the projector")
+                self._refresh_status()
 
     def _on_export_clicked(self, _button) -> None:
         if not self.current_device:
@@ -2675,12 +2674,12 @@ class MainWindow(Adw.ApplicationWindow):
             steps.append(MacroStep(command="set_source", args={"source": source_name}, delay_ms=1000))
             
         color_mode = self.color_mode_row.get_selected_item()
-        if color_mode:
+        if color_mode and self.color_mode_row.get_sensitive():
             cm_name = color_mode.get_string().replace(" ", "_").upper()
             steps.append(MacroStep(command="set_color_mode", args={"mode": cm_name}, delay_ms=500))
             
         lum_mode = self.luminance_row.get_selected_item()
-        if lum_mode:
+        if lum_mode and self.luminance_row.get_sensitive():
             lm_name = lum_mode.get_string().replace(" ", "_").upper()
             steps.append(MacroStep(command="set_luminance", args={"mode": lm_name}, delay_ms=500))
             

@@ -82,73 +82,43 @@ Service types:
 - `_http._tcp.local.` - Generic HTTP devices (filtered by keywords)
 - `_pjlink._tcp.local.` - PJLink-compatible projectors
 
-### EEMP UDP Broadcast (Reverse-engineered from EMP_PJCON.dll / EMP_NMANG.dll)
+### Native EasyMP registration
 
-Epson proprietary discovery protocol:
-- Client broadcasts UDP packet on port **3620**
-- Packet structure: `EEMP` (4 bytes) + `0100` (4 bytes version) + 56 bytes padding = 64 bytes total
-- Projectors respond on port **3621** with their capabilities
-- Response contains: magic bytes, projector name (ASCII), capability flags
-- Capability flags at byte 16: bit 0 = JPEG rect, bit 1 = MPEG4-AVC, bit 2 = audio, bit 3 = AES
+The EB/PowerLite 1945W responds on TCP 3620 to a 68-byte registration request
+(command 2). Its `EEMP0100` response messages use a 20-byte header: identifier,
+sender IPv4, little-endian command, and little-endian payload length. Identity
+is in command 3; capabilities are length-delimited records in command 0x15.
+
+Do not infer JPEG, audio, encryption, or WebRTC support from an arbitrary byte
+at offset 16. The old UDP packet/flag assumptions have been removed.
 
 ## Screen Casting Protocol
 
-### Stream Transport
+The EB/PowerLite 1945W uses native EasyMP TCP projection. The implemented legacy
+connection flow is 0x0004/0x0005 on TCP 3620, video-ready 0x0016, JPEG tiles on
+TCP 3621, keepalive 0x000A, and disconnect 0x0006/0x0007. The frame dimensions
+come from the projector (1280×800 on the available hardware).
 
-Pure **RTP over UDP** (not RTSP). No session negotiation handshake; the sender simply starts pushing RTP packets to the receiver's IP. Before streaming, the sender switches the projector to SOURCE 53 (LAN input).
+`EPRD0600` display metadata uses a little-endian length. JPEG blocks use a
+big-endian length, tile count, and tile coordinates. Each tile has encoding 7
+and a 0x90 compact JPEG byte-length tag. Raw RTP H.264 or JPEG on UDP 5004 is
+not this protocol and has not projected an image on the tested 1945W.
 
-#### Video (port 5004)
-- Codec: H.264 (Baseline/Main profile)
-- RTP payload type: 96
-- RTP packetization: `rtph264pay` with `config-interval=1` (SPS/PPS in every keyframe)
-- Resolution: 1920×1080 (negotiable via caps)
-- Framerate: 30fps
-- Pixel format: I420 (mandatory caps filter for encoder compatibility)
-- Encoding: Hardware preferred (vaapih264enc, nvv4l2h264enc), software fallback (x264enc)
+See [the support audit](EB1945W_SUPPORT.md) for packet sources, the exact scope
+of hardware verification, GUI fixes, and missing audio/security/collaboration
+features. `signaling.py` remains an unused WebRTC stub; it is not evidence that
+this older projector needs WebRTC.
 
-#### Audio (port 5006)
-- Codec: Opus (preferred) or AAC (fallback)
-- RTP payload type: 97
-- Sample rate: 48000 Hz, stereo, S16LE
-- Opus bitrate: 128 kbps
-- Source: PipeWire (preferred) or PulseAudio monitor (fallback)
+### Desktop capture
 
-### GStreamer Pipeline
+Use the desktop's ScreenCast permission flow and retain its session handle.
+Call `OpenPipeWireRemote` and pass the returned file descriptor to `pipewiresrc`.
+The native capture path handles RGB row stride, requests an embedded cursor,
+and bounds the frame queue. Refusal cancels the cast without a synthetic-screen
+fallback. Screen capture is separate from projector session acceptance.
 
-Video branch:
-```
-pipewiresrc path={NODE_ID} do-timestamp=true !
-videoconvert ! videoscale ! videorate !
-video/x-raw,format=I420,framerate=30/1 !
-{encoder} !
-h264parse !
-rtph264pay config-interval=1 pt=96 !
-udpsink host={TARGET_IP} port=5004 sync=false
-```
+### Raw RTP compatibility path
 
-Audio branch:
-```
-pipewiresrc do-timestamp=true !
-audioconvert ! audioresample !
-audio/x-raw,format=S16LE,channels=2,rate=48000 !
-opusenc bitrate=128000 !
-rtpopuspay pt=97 !
-udpsink host={TARGET_IP} port=5006 sync=false
-```
-
-### Screen Capture (XDG Desktop Portal)
-
-Uses `org.freedesktop.portal.ScreenCast` D-Bus interface:
-1. CreateSession → session handle
-2. SelectSources(types=1 for monitor, cursor_mode=2 for metadata)
-3. Start → user permission dialog → streams list
-4. Extract PipeWire node ID from first stream
-5. Pass node ID to `pipewiresrc path={NODE_ID}`
-
-Compatible with all major Wayland compositors:
-- GNOME (xdg-desktop-portal-gnome)
-- KDE Plasma (xdg-desktop-portal-kde)
-- niri (xdg-desktop-portal-gnome or -wlr)
-- Hyprland (xdg-desktop-portal-hyprland)
-- Sway (xdg-desktop-portal-wlr)
-
+The previous RTP/UDP sender is retained only behind explicit CLI
+`--transport rtp`. Selecting an encoder or opening a UDP socket does not
+establish compatibility with an Epson network-screen receiver.

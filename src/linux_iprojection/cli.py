@@ -48,7 +48,7 @@ async def _status(args):
     async with _make_client(args) as client:
         status = await client.get_status()
         print(f"Status for {args.ip}:")
-        print(f"  Power:      {'On' if status.power else 'Off'}")
+        print(f"  Power:      {'On' if status.power_is_on else 'Off'}")
         if status.source:
             source_str = status.source.name if hasattr(status.source, 'name') else str(status.source)
             print(f"  Source:     {source_str}")
@@ -215,8 +215,8 @@ async def _encrypt(args):
 
 
 async def _keystone(args):
-    if not (-60 <= args.value <= 60):
-        print("Keystone value must be between -60 and 60.")
+    if not (0 <= args.value <= 255):
+        print("Keystone value must be between 0 and 255.")
         sys.exit(1)
         
     try:
@@ -242,7 +242,7 @@ async def _info(args):
     async with ProjectorClient(args.ip, "eps") as client:
         status = await client.get_status()
         print(f"Detailed Info for {args.ip}:")
-        print(f"  Power:              {'On' if status.power else 'Off'}")
+        print(f"  Power:              {'On' if status.power_is_on else 'Off'}")
         if status.projector_name:
             print(f"  Projector Name:     {status.projector_name}")
         serial_val = getattr(status, "serial", getattr(status, "serial_number", ""))
@@ -322,7 +322,10 @@ async def _cast(args):
             on_error=lambda e: print(f"Stream error: {e}"),
         )
 
-    print(f"Starting screen cast to {args.ip}:{args.video_port} ({w}x{h}@{fps}fps, quality={args.quality})...")
+    if args.transport == "easymp":
+        print(f"Connecting to EasyMP projector {args.ip}...")
+    else:
+        print(f"Starting RTP stream to {args.ip}:{args.video_port} ({w}x{h}@{fps}fps)...")
     success = await caster.start(target)
     if not success:
         if getattr(caster, "user_cancelled", False):
@@ -361,7 +364,7 @@ async def _test_pattern(args):
         caster = ScreenCaster(sink=RtpUdpSink(), stream_quality=args.quality,
                               on_error=lambda e: print(f"Stream error: {e}"))
 
-    print(f"Starting test pattern '{args.pattern}' → {args.ip}:{args.port} ...")
+    print(f"Starting {args.transport} test pattern '{args.pattern}' → {args.ip} ...")
     success = await caster.start_test_pattern(target, pattern=args.pattern)
     if not success:
         print(f"Failed to start test pattern: {caster.last_error}")
@@ -550,7 +553,7 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
     # Keystone
     keystone_parser = subparsers.add_parser("keystone", help="Set keystone")
     keystone_parser.add_argument("axis", choices=["h", "v"], help="Keystone axis")
-    keystone_parser.add_argument("value", type=int, help="Keystone value (-60 to 60)")
+    keystone_parser.add_argument("value", type=int, help="Epson keystone wire value (0 to 255)")
     keystone_parser.add_argument("ip", help="IP address of the projector")
 
     # Enterprise features
