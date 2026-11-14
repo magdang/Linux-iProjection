@@ -36,7 +36,8 @@ Native video framing is adapted from these MIT-licensed primary sources:
    from `OpenPipeWireRemote`; handle the actual RGB row stride. Keep only the
    newest queued frame so a slow projector cannot accumulate captured screens.
 6. Encode JPEG tiles with position/size descriptors and compact byte lengths.
-   Send full frames, preserve aspect ratio, and service the control channel.
+   Send changed tiles, refresh the full frame once a second, preserve aspect
+   ratio, and service the control channel even when the image is unchanged.
 7. Send command 10 keepalives. Surface remote session closure. On Stop or normal
    window close, send command 6 and wait up to three seconds for reply 7.
 
@@ -78,16 +79,19 @@ video configuration, JPEG decoding, heartbeat, and acknowledged disconnect.
 ## Limits
 
 The user-provided four-digit keyword is validated and encoded, but keyword-
-protected hardware has not been tested. There is no guessing, authentication
-bypass, or automatic session takeover. Other projector models are unverified.
+protected hardware has not been tested. Rejected sessions are not retried and
+keywords are not guessed. Busy-session arbitration has not been verified.
+Other projector models are unverified.
 
 Removed the legacy discovery implementation's unverified 64-byte UDP request
 and guessed capability bits. Discovery now validates TCP registration and
 reports the real JPEG frame size. Native casting validates those capabilities
 again before connecting.
 
-Full frames are intentionally sent initially; changed-region updates are a
-performance follow-up, not necessary for correct projection. Native audio,
+Unchanged tiles are omitted using the existing validated JPEG framing, with a
+full refresh every second and whenever quality changes. Mock transport tests
+check idle suppression, one-tile changes, refreshes, and failed-send recovery;
+this optimization still needs a physical display check. Native audio,
 encrypted sessions, multi-presenter control, and virtual display creation remain
 separate protocol work. Tests cannot establish that a physical image appeared;
 that is recorded separately above.

@@ -132,7 +132,7 @@ def video_frame(ip: str, tiles: list[tuple[int, int, int, int, bytes]], size: tu
 
 
 class EasyMPClient:
-    """One accepted projection session; no retries, takeover, or keyword guessing."""
+    """One accepted projection session; no refusal retries or keyword guessing."""
 
     def __init__(self, host: str, keyword: str = "", control_port: int = 3620, video_port: int = 3621):
         self.host = host
@@ -146,6 +146,9 @@ class EasyMPClient:
         self.bytes_sent = self.frames_sent = 0
         self.quality = 85
         self._last_keepalive = 0.0
+        self._previous_tiles = {}
+        self._last_refresh = 0.0
+        self._previous_quality = None
 
     def _open(self, port):
         sock = socket.create_connection((self.host, port), timeout=3)
@@ -185,6 +188,8 @@ class EasyMPClient:
 
     def connect(self):
         try:
+            self._previous_tiles.clear()
+            self._last_refresh = 0.0
             self.inspect()
             self.control = self._open(self.control_port)
             self.control.sendall(login_packet(self.ip, self.control.getpeername()[0], self.identity, self.keyword))
@@ -215,15 +220,29 @@ class EasyMPClient:
         width, height = self.identity.width, self.identity.height
         if image.size != (width, height):
             raise ValueError("Capture dimensions differ from the negotiated EasyMP frame")
+        now = time.monotonic()
+        refresh = now - self._last_refresh >= 1 or self.quality != self._previous_quality
         tiles = []
+        current = {}
         for y in range(0, height, self.identity.tile_height):
             for x in range(0, width, self.identity.tile_width):
                 right, bottom = min(x + self.identity.tile_width, width), min(y + self.identity.tile_height, height)
+                tile = image.crop((x, y, right, bottom))
+                pixels = tile.tobytes()
+                current[x, y] = pixels
+                if not refresh and self._previous_tiles.get((x, y)) == pixels:
+                    continue
                 encoded = io.BytesIO()
-                image.crop((x, y, right, bottom)).save(encoded, "JPEG", quality=self.quality, subsampling=2)
+                tile.save(encoded, "JPEG", quality=self.quality, subsampling=2)
                 tiles.append((x, y, right - x, bottom - y, encoded.getvalue()))
+        if not tiles:
+            return
         frame = video_frame(self.ip, tiles, (width, height))
         self.video.sendall(frame)
+        self._previous_tiles = current
+        self._previous_quality = self.quality
+        if refresh:
+            self._last_refresh = now
         self.frames_sent += 1
         self.bytes_sent += len(frame)
 

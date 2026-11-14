@@ -208,6 +208,54 @@ def test_video_rejects_out_of_bounds_or_invalid_jpeg():
             video_frame("127.0.0.1", [tile], (1280, 800))
 
 
+def test_changed_tiles_periodic_refresh_and_quality(mocker):
+    client = EasyMPClient("127.0.0.1")
+    client.identity = identity()
+    client.ip = "127.0.0.1"
+    client.video = mocker.Mock()
+    clock = mocker.patch("linux_iprojection.easymp.time.monotonic", return_value=100)
+    image = Image.new("RGB", (1280, 800), "red")
+    client.send_image(image)
+    first = client.bytes_sent
+    client.send_image(image)
+    assert client.video.sendall.call_count == 1
+    assert client.frames_sent == 1 and client.bytes_sent == first
+
+    image.putpixel((1279, 799), (0, 0, 255))
+    client.send_image(image)
+    frame = client.video.sendall.call_args.args[0]
+    assert struct.unpack_from(">I", frame, 20)[0] == 1
+    assert struct.unpack_from(">HHHHI", frame, 24) == (1248, 416, 32, 384, 7)
+    assert len(frame) < first / 4
+
+    clock.return_value = 101
+    client.send_image(image)
+    assert struct.unpack_from(">I", client.video.sendall.call_args.args[0], 20)[0] == 6
+    client.quality = 65
+    client.send_image(image)
+    assert struct.unpack_from(">I", client.video.sendall.call_args.args[0], 20)[0] == 6
+    assert client.frames_sent == 4
+
+
+def test_failed_tile_send_is_not_cached(mocker):
+    client = EasyMPClient("127.0.0.1")
+    client.identity = identity()
+    client.ip = "127.0.0.1"
+    client.video = mocker.Mock()
+    mocker.patch("linux_iprojection.easymp.time.monotonic", return_value=100)
+    image = Image.new("RGB", (1280, 800), "red")
+    client.send_image(image)
+    image.putpixel((5, 5), (0, 0, 255))
+    client.video.sendall.side_effect = OSError("connection lost")
+    with pytest.raises(OSError, match="connection lost"):
+        client.send_image(image)
+    assert client.frames_sent == 1
+    client.video.sendall.side_effect = None
+    client.send_image(image)
+    assert client.frames_sent == 2
+    assert struct.unpack_from(">I", client.video.sendall.call_args.args[0], 20)[0] == 1
+
+
 @pytest.mark.asyncio
 async def test_gstreamer_capture_to_native_jpeg_worker(mocker):
     from linux_iprojection.cast import CastTarget
