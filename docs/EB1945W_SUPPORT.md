@@ -73,7 +73,7 @@ video configuration, JPEG decoding, heartbeat, and acknowledged disconnect.
 | Apple / Android phone mirroring | Linux bridge through optional UxPlay (PIN-protected AirPlay) and scrcpy (authorized wireless Android). GUI pairing and process cleanup implemented; phone-to-projector hardware check pending. Native Miracast is not implemented. |
 | Multi-presenter quadrants / moderator | Missing EasyMP layout/arbitration; disabled. The old ASCII `MODERATOR` command does not implement that protocol. |
 | Whiteboard / pen/touch | No implemented transport for this projector; disabled. Sending WBSHARE/FCN ASCII commands is insufficient. |
-| Encryption | Experimental legacy AES session option; fresh seed, native framing, encrypted video metadata/JPEG/PCM, capability checks, and no plaintext fallback. Binary/OpenSSL vectors and local TCP tests pass; physical encrypted projection is unverified. DES/AESEPCTR remain unimplemented. |
+| Encryption | Experimental legacy AES session option; fresh seed, native framing, encrypted video metadata/JPEG/PCM, capability checks, and no plaintext fallback. User confirmed the AES image/live counter; a separate 45-second run sent 82 frame updates and closed cleanly. Encrypted audio and long-session reliability remain unverified. DES/AESEPCTR remain unimplemented. |
 | WebRTC signaling | Existing stub is not used. No evidence that this 1945W needs WebRTC; it successfully accepts legacy EasyMP. |
 | Network diagnostics / firewall guidance | Added TCP 3620/3621. No local firewall settings were changed. |
 
@@ -126,7 +126,7 @@ that is recorded separately above.
   all changed installed modules matched the source byte for byte.
 - Legacy AES adds independent key/envelope vectors, encrypted metadata/JPEG/PCM
   delivery over local TCP, capability checks, and fail-closed error coverage.
-  AES projection on the physical device remains unverified.
+  Physical AES video was subsequently confirmed; see the live checks below.
 - Phone mirroring adds pairing/authorization, private pairing-code handling,
   owned-process cleanup, and PIN redaction checks. The installed PIN-protected
   AirPlay receiver started and stopped successfully; no phone sender was tested.
@@ -144,3 +144,17 @@ that is recorded separately above.
 - Virtual output create/remove succeeded on the running Hyprland desktop and
   left the original outputs intact. GNOME/KDE and physical extended projection
   are still unverified.
+
+## Live checks on 2026-11-15
+
+- The laptop's VPN initially routed `192.168.1.9` into its tunnel and native
+  inspection timed out. After the user disconnected the VPN, native inspection
+  succeeded over `wlan0` and reported the same JPEG/PCM/DES/AES capabilities.
+- The user confirmed color bars labeled BASELINE and a changing live counter.
+- The user also confirmed the AES ENCRYPTED image and changing live counter.
+  The first AES run later hit a video socket timeout; a separate 45-second AES
+  run completed normally with 82 frame updates and 2,834,408 transmitted bytes.
+- The iPhone discovered iProjection but its first connection attempt failed.
+  UFW is active; AirPlay now uses fixed TCP/UDP ports 35000–35002 and the GUI
+  describes the receiving-port requirement. Firewall rules and end-to-end phone
+  projection still need verification.

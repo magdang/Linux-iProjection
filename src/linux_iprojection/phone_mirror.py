@@ -98,7 +98,7 @@ class PhoneMirror:
                 path = executable("uxplay")
                 self.pin = f"{secrets.randbelow(9000) + 1000}"
                 args = [path, "-rc", "/dev/null", "-n", "iProjection", "-nh", "-pin", self.pin,
-                        "-s", "1280x800@30", "-avdec"]
+                        "-s", "1280x800@30", "-avdec", "-p", "35000"]
                 if not audio:
                     args += ["-as", "0"]
             else:

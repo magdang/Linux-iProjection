@@ -20,6 +20,21 @@ unrelated UxPlay config, and stops only the process it owns. Closing the app
 stops its receivers. No receiver is advertised merely by opening iProjection.
 DRM-protected Apple video is outside UxPlay's supported mirroring scope.
 
+The receiver uses TCP and UDP ports **35000–35002** so its firewall requirements
+stay predictable. Allow those ports from the phone on the local Wi-Fi, plus
+UDP 5353 for discovery. The app does not change firewall rules automatically.
+For this laptop's `wlan0` interface and `192.168.1.0/24` LAN, UFW rules are:
+
+```sh
+sudo ufw allow in on wlan0 from 192.168.1.0/24 to any port 35000:35002 proto tcp comment 'iProjection AirPlay LAN'
+sudo ufw allow in on wlan0 from 192.168.1.0/24 to any port 35000:35002 proto udp comment 'iProjection AirPlay LAN'
+```
+
+Adjust the interface/subnet to the actual network. These rules permit only
+that Wi-Fi LAN, rather than opening the ports on every interface. Discovery
+can succeed while the phone connection fails if these receiving ports are
+blocked. See [UxPlay's port options](https://github.com/FDH2/UxPlay#usage).
+
 ## Android alternative to Miracast
 
 The implemented Android route uses [scrcpy](https://github.com/Genymobile/scrcpy)

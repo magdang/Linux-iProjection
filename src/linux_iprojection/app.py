@@ -2519,7 +2519,7 @@ class MainWindow(Adw.ApplicationWindow):
             elif stopping:
                 self._phone_rows[kind].set_subtitle("Stopped. Start again when you want to share your phone.")
             else:
-                message = f"AirPlay name: iProjection · PIN: {pin}. Connect, then select the UxPlay window when casting." if pin else "Select the iProjection Android window when casting. Phone control and clipboard sharing are off."
+                message = f"AirPlay name: iProjection · PIN: {pin}. Allow TCP/UDP 35000–35002 from your phone through the firewall. Connect, then select the UxPlay window when casting." if pin else "Select the iProjection Android window when casting. Phone control and clipboard sharing are off."
                 self._phone_rows[kind].set_subtitle(message)
                 self._phone_timers[kind] = GLib.timeout_add(500, self._check_phone_mirror, kind)
 

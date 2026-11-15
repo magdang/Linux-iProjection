@@ -2,7 +2,9 @@
 
 The GUI's Legacy AES switch and CLI `cast HOST --encryption aes` now negotiate
 the older AES mode advertised by the 1945W. Test patterns accept the same flag.
-It is experimental until the projector accepts it and displays an image.
+The user confirmed an AES image and live counter on the physical 1945W on
+2026-11-15. A separate 45-second run sent 82 frame updates and disconnected
+cleanly. An earlier run timed out, so long-session reliability remains unproven.
 Install the optional `linux-iprojection[encryption]` dependency for AES support.
 
 ## Implemented wire path
@@ -40,4 +42,5 @@ Python implementation. A fixed envelope vector was independently generated
 with OpenSSL. Tests decrypt video metadata, JPEG, and PCM sent over real local
 TCP sockets, verify exact framing/padding, and ensure failures do not cause a
 plaintext login. Vendor executable code is not included in the tests or package.
-No encrypted projector session has been claimed as hardware-tested.
+Encrypted video is hardware-confirmed on this projector; encrypted audio and
+other projector models remain unverified.

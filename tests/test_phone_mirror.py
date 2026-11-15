@@ -79,6 +79,7 @@ def test_airplay_is_explicit_pin_protected_and_owned(process):
     args = process.popen.call_args.args[0]
     assert args[args.index("-pin") + 1] == "1123"
     assert args[args.index("-rc") + 1] == "/dev/null"
+    assert args[args.index("-p") + 1] == "35000"
     assert args[-2:] == ["-as", "0"]
     assert process.popen.call_args.kwargs["start_new_session"] is True
     with pytest.raises(RuntimeError, match="already running"):
