@@ -107,12 +107,26 @@ def test_control_timeout():
 @pytest.fixture
 def fake_projector(request):
     audio_enabled = getattr(request, "param", False)
+    encrypted = audio_enabled == "aes"
     control = socket.create_server(("127.0.0.1", 0))
     video = socket.create_server(("127.0.0.1", 0))
     control.settimeout(3)
     video.settimeout(3)
     errors = []
     seen = {"frame": None, "goodbye": False, "heartbeat": False}
+
+    def decrypt(packet):
+        if not encrypted:
+            return packet
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        decoder = Cipher(algorithms.AES128(bytes.fromhex("9261ed6526cd42db" * 2)), modes.ECB()).decryptor()
+        plain = decoder.update(packet) + decoder.finalize()
+        size = int.from_bytes(plain[:4], "big")
+        assert plain[4:16] == bytes(12)
+        padding = -size % 16
+        assert len(plain) == 16 + size + padding
+        assert plain[16 + size:] == bytes([padding]) * padding
+        return plain[16:16 + size]
 
     def serve():
         try:
@@ -125,6 +139,8 @@ def fake_projector(request):
             with auth:
                 command, seen["login"] = read_message(auth, time.monotonic() + 3)
                 assert command == 4
+                if encrypted:
+                    assert seen["login"][4:13] == b"\x02" + bytes(range(1, 9))
                 auth.sendall(control_packet("127.0.0.1", 5, REGISTRATION[20:94]))
                 stream, _ = video.accept()
                 aux, _ = video.accept()
@@ -133,7 +149,7 @@ def fake_projector(request):
                     header = stream.recv(20, socket.MSG_WAITALL)
                     assert header[:8] == b"EPRD0600"
                     size = int.from_bytes(header[16:20], "little")
-                    meta = stream.recv(size, socket.MSG_WAITALL)
+                    meta = decrypt(stream.recv(size, socket.MSG_WAITALL))
                     assert meta[:8] == bytes.fromhex("c800000005000320")
                     if audio_enabled:
                         aux.settimeout(3)
@@ -142,13 +158,28 @@ def fake_projector(request):
                     header = stream.recv(20, socket.MSG_WAITALL)
                     if header:
                         size = int.from_bytes(header[16:20], "big")
-                        seen["frame"] = stream.recv(size, socket.MSG_WAITALL)
+                        seen["frame"] = decrypt(stream.recv(size, socket.MSG_WAITALL))
                     if audio_enabled:
-                        header = aux.recv(5, socket.MSG_WAITALL)
+                        if encrypted:
+                            from cryptography.hazmat.primitives.ciphers import (
+                                Cipher,
+                                algorithms,
+                                modes,
+                            )
+                            prefix = aux.recv(16, socket.MSG_WAITALL)
+                            decoder = Cipher(algorithms.AES128(bytes.fromhex("9261ed6526cd42db" * 2)), modes.ECB()).decryptor()
+                            length = int.from_bytes(decoder.update(prefix)[:4], "big")
+                            assert 5 < length <= 65541
+                            packet = decrypt(prefix + aux.recv((length + 15) // 16 * 16, socket.MSG_WAITALL))
+                            header, data = packet[:5], packet[5:]
+                        else:
+                            header = aux.recv(5, socket.MSG_WAITALL)
+                            data = None
                         assert header[0] == 0xC9
                         size = int.from_bytes(header[1:5], "little")
                         assert 0 < size <= 65536
-                        seen["audio"] = aux.recv(size, socket.MSG_WAITALL)
+                        seen["audio"] = data if data is not None else aux.recv(size, socket.MSG_WAITALL)
+                        assert len(seen["audio"]) == size
                     while True:
                         command, _ = read_message(auth, time.monotonic() + 4)
                         if command == 10:
@@ -473,3 +504,43 @@ def test_audio_capture_error_releases_startup_waiters(mocker):
     assert caster._audio_sample(sink) == Gst.FlowReturn.ERROR
     assert "invalid sample" in caster.last_error
     assert caster._stop.is_set() and caster._first_audio.is_set() and caster._first_frame.is_set()
+
+
+@pytest.mark.parametrize("fake_projector", ["aes"], indirect=True)
+def test_encrypted_session_video_and_audio(fake_projector, mocker):
+    control, video, seen = fake_projector
+    mocker.patch("linux_iprojection.easymp.secrets.token_bytes", return_value=bytes(range(1, 9)))
+    client = EasyMPClient("127.0.0.1", control_port=control, video_port=video,
+                          audio_enabled=True, encryption="aes")
+    try:
+        client.connect()
+        client.send_image(Image.new("RGB", (1280, 800), "red"))
+        client.send_audio(b"\x80" * 441)
+    finally:
+        client.close()
+    assert seen["audio"] == b"\x80" * 441
+    assert struct.unpack_from(">I", seen["frame"])[0] == 6
+    assert seen["goodbye"] and client._cipher is None
+
+
+def test_aes_capability_and_dependency_fail_without_plaintext_login(mocker):
+    client = EasyMPClient("127.0.0.1", encryption="aes")
+    client.identity = identity()
+    mocker.patch.object(client, "inspect")
+    opening = mocker.patch.object(client, "_open")
+    client.identity.flags = b"\x9f\x01"
+    with pytest.raises(ProjectorError, match="did not advertise legacy AES"):
+        client.connect()
+    opening.assert_not_called()
+    client.identity.flags = b"\x9f\x03"
+    mocker.patch("linux_iprojection.easymp_crypto.EpsonAES", side_effect=ProjectorError("missing dependency"))
+    with pytest.raises(ProjectorError, match="missing dependency"):
+        client.connect()
+    opening.assert_not_called()
+    assert client._cipher is None
+
+
+@pytest.mark.parametrize("command,payload", [(8, bytes(12)), (8, b""), (9, b"")])
+def test_legacy_refusals_do_not_wait_for_timeout(command, payload):
+    with pytest.raises(ProjectorError):
+        EasyMPClient("127.0.0.1")._handle(command, payload)

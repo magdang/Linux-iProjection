@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import logging
+import secrets
 import select
 import socket
 import struct
@@ -135,7 +136,7 @@ def registration_packet(ip: str) -> bytes:
 
 
 def login_packet(ip: str, host: str, identity: ProjectorIdentity, keyword: str = "",
-                 audio_format: AudioFormat | None = None) -> bytes:
+                 audio_format: AudioFormat | None = None, encryption_seed: bytes | None = None) -> bytes:
     if keyword and (len(keyword) != 4 or not keyword.isascii() or not keyword.isdigit()):
         raise ValueError("The EasyMP Projector Keyword must contain exactly four ASCII digits")
     if len(identity.mac) != 6 or not any(identity.mac) or not identity.name:
@@ -144,6 +145,13 @@ def login_packet(ip: str, host: str, identity: ProjectorIdentity, keyword: str =
         "0100000000000000000020f37fffff0000000000000201030004000320200001ff00ff00ff00000810000000010c0000"
     )
     struct.pack_into("<HH", body, 24, identity.width, identity.height)
+    if encryption_seed is not None:
+        if len(identity.flags) < 2 or not identity.flags[1] & 2:
+            raise ProjectorError("Projector did not advertise legacy AES encryption")
+        if len(encryption_seed) != 8 or not any(encryption_seed):
+            raise ValueError("EasyMP AES needs a nonzero eight-byte session seed")
+        body[4] = 2
+        body[5:13] = encryption_seed
     if audio_format is not None:
         if not identity.audio_sending or audio_format not in identity.audio_formats:
             raise ProjectorError("Requested PCM audio format was not advertised by the projector")
@@ -171,7 +179,9 @@ class EasyMPClient:
     """One accepted projection session; no refusal retries or keyword guessing."""
 
     def __init__(self, host: str, keyword: str = "", control_port: int = 3620, video_port: int = 3621,
-                 audio_enabled: bool = False):
+                 audio_enabled: bool = False, encryption: str = "off"):
+        if encryption not in ("off", "aes"):
+            raise ValueError("Native encryption must be off or aes")
         self.host = host
         self.keyword = keyword
         self.control_port = control_port
@@ -189,6 +199,8 @@ class EasyMPClient:
         self.audio_enabled = audio_enabled
         self.audio_format = None
         self.audio_bytes_sent = 0
+        self.encryption = encryption
+        self._cipher = None
 
     def _open(self, port):
         sock = socket.create_connection((self.host, port), timeout=3)
@@ -215,7 +227,12 @@ class EasyMPClient:
             if len(payload) < 54:
                 raise ProjectorError("Truncated EasyMP connection reply")
             self.accepted = True
-        elif command in (6, 7, 0x111):
+        elif command == 8:
+            if len(payload) < 12:
+                raise ProjectorError("Truncated EasyMP rejection reply")
+            category, cause = struct.unpack_from("<II", payload, 4)
+            raise ProjectorError(f"Projector rejected EasyMP connection (category={category}, cause={cause})")
+        elif command in (6, 7, 9, 0x111):
             raise ProjectorError(f"Projector ended or rejected EasyMP streaming (0x{command:04x})")
 
     def _wait(self, expected):
@@ -231,20 +248,30 @@ class EasyMPClient:
             self._previous_tiles.clear()
             self._last_refresh = 0.0
             self.inspect()
+            seed = None
+            if self.encryption == "aes":
+                if len(self.identity.flags) < 2 or not self.identity.flags[1] & 2:
+                    raise ProjectorError("Projector did not advertise legacy AES encryption")
+                from .easymp_crypto import EpsonAES
+                seed = secrets.token_bytes(8)
+                if not any(seed):
+                    raise ProjectorError("Could not generate a nonzero AES session seed")
+                self._cipher = EpsonAES(seed)
             if self.audio_enabled:
                 if not self.identity.audio_sending or not self.identity.audio_formats:
                     raise ProjectorError("Projector did not advertise supported native PCM audio; turn Include audio off")
                 self.audio_format = self.identity.audio_formats[0]
             self.control = self._open(self.control_port)
             self.control.sendall(login_packet(self.ip, self.control.getpeername()[0], self.identity,
-                                              self.keyword, self.audio_format))
+                                              self.keyword, self.audio_format, seed))
             self._wait(5)
             self.video = self._open(self.video_port)
             self.aux = self._open(self.video_port)
             size = struct.pack(">HH", self.identity.width, self.identity.height)
             meta = b"\xc8\0\0\0" + size + bytes.fromhex("20200001ff00ff00ff00100800000000")
-            self.video.sendall(b"EPRD0600" + socket.inet_aton(self.ip) + bytes(4)
-                               + struct.pack("<I", len(meta)) + meta)
+            self.video.sendall(self._video_packet(
+                b"EPRD0600" + socket.inet_aton(self.ip) + bytes(4)
+                + struct.pack("<I", len(meta)) + meta, "little"))
             if self.audio_enabled:
                 self.aux.sendall(b"EPRD0600" + socket.inet_aton(self.ip) + bytes(4)
                                  + struct.pack("<I", 16) + b"\xd0\0\0\0"
@@ -264,6 +291,12 @@ class EasyMPClient:
         if now - self._last_keepalive >= 1:
             self.control.sendall(control_packet(self.ip, 10))
             self._last_keepalive = now
+
+    def _video_packet(self, frame, byteorder="big"):
+        if self._cipher is None:
+            return frame
+        encrypted = self._cipher.encrypt(frame[20:])
+        return frame[:16] + len(encrypted).to_bytes(4, byteorder) + encrypted
 
     def send_image(self, image: Image.Image):
         width, height = self.identity.width, self.identity.height
@@ -286,7 +319,7 @@ class EasyMPClient:
                 tiles.append((x, y, right - x, bottom - y, encoded.getvalue()))
         if not tiles:
             return
-        frame = video_frame(self.ip, tiles, (width, height))
+        frame = self._video_packet(video_frame(self.ip, tiles, (width, height)))
         self.video.sendall(frame)
         self._previous_tiles = current
         self._previous_quality = self.quality
@@ -301,6 +334,8 @@ class EasyMPClient:
         if not pcm or len(pcm) > 65536 or len(pcm) % self.audio_format.sample_size:
             raise ValueError("Invalid or unaligned EasyMP PCM audio buffer")
         frame = b"\xc9" + struct.pack("<I", len(pcm)) + pcm
+        if self._cipher is not None:
+            frame = self._cipher.encrypt(frame)
         self.aux.sendall(frame)
         self.audio_bytes_sent += len(pcm)
         self.bytes_sent += len(frame)
@@ -317,6 +352,7 @@ class EasyMPClient:
         finally:
             self.accepted = False
             self.audio_format = None
+            self._cipher = None
             for sock in (self.video, self.aux, self.control):
                 if sock:
                     sock.close()

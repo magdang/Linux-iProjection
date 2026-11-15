@@ -551,6 +551,13 @@ class MainWindow(Adw.ApplicationWindow):
         audio_row.set_activatable_widget(self.audio_switch)
         cast_group.add(audio_row)
 
+        self.aes_switch = Adw.SwitchRow(
+            title="Legacy AES (Experimental)",
+            subtitle="Encrypts native video/audio with Epson's older scheme; hardware test pending",
+            active=False,
+        )
+        cast_group.add(self.aes_switch)
+
         # Test Patterns
         from .cast import TEST_PATTERNS
         pattern_row = Adw.ActionRow(
@@ -2474,6 +2481,7 @@ class MainWindow(Adw.ApplicationWindow):
         device = self.current_device
         is_virtual = self.display_mode_row.get_selected() == 1
         include_audio = self.audio_switch.get_active()
+        encryption = "aes" if self.aes_switch.get_active() else "off"
 
         def start_cast():
             try:
@@ -2499,6 +2507,7 @@ class MainWindow(Adw.ApplicationWindow):
                     on_stats=self._on_cast_stats, on_error=self._on_cast_error, fps=fps,
                     stream_quality=self._config.stream_quality,
                     audio_enabled=include_audio,
+                    encryption=encryption,
                 )
                 # Run the async portal request (shows screen picker dialog)
                 asyncio.run(self._caster.start(target, virtual=is_virtual))
@@ -2522,6 +2531,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_cast_started(self, device_name: str) -> None:
         self._set_casting_state(True)
+
         self.cast_btn.set_label("Stop Casting")
         self.casting_title.set_label(f"Casting to {device_name}")
         self.casting_status.set_label("EasyMP session accepted · sending JPEG frames")
@@ -2712,6 +2722,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.content_stack.set_visible_child_name("casting")
         self.casting_status.set_label(f"Pattern: {pattern_name}")
         self._set_casting_state(True)
+        encryption = "aes" if self.aes_switch.get_active() else "off"
 
         def run_pattern():
             try:
@@ -2725,6 +2736,7 @@ class MainWindow(Adw.ApplicationWindow):
                     log.debug("Auto-switch source to LAN: %s", ex)
 
                 self._caster = start_test_pattern(
+                    encryption=encryption,
                     host=self.current_device.address,
                     pattern_name=pattern_name,
                     port=getattr(self.current_device, "stream_port", 5004),

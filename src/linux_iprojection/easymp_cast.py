@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 
 class EasyMPCaster:
     def __init__(self, on_stats=None, on_error=None, fps=15, stream_quality="balanced",
-                 audio_enabled=False):
+                 audio_enabled=False, encryption="off"):
         self.on_stats, self.on_error = on_stats, on_error
         self.fps = min(max(fps, 1), 24)
         self.last_error = None
@@ -45,6 +45,7 @@ class EasyMPCaster:
         self._frames = queue.Queue(maxsize=1)
         self._audio = queue.Queue(maxsize=5)
         self.audio_enabled = audio_enabled
+        self.encryption = encryption
         self._worker = self._pipeline = self._client = None
         self._portal_session_handle = None
         self._pipewire_fd = None
@@ -101,7 +102,8 @@ class EasyMPCaster:
                 source = f"pipewiresrc fd={self._pipewire_fd} path={node} do-timestamp=true"
             else:
                 source = f"videotestsrc is-live=true pattern={TEST_PATTERNS[pattern]}"
-            client = EasyMPClient(target.host, keyword=target.password, audio_enabled=self.audio_enabled)
+            client = EasyMPClient(target.host, keyword=target.password, audio_enabled=self.audio_enabled,
+                                  encryption=self.encryption)
             client.quality = self.quality
             self._client = client
             connecting = asyncio.create_task(asyncio.to_thread(client.connect))

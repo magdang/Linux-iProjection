@@ -1073,6 +1073,7 @@ def start_test_pattern(
     on_stats: Any = None,
     on_error: Any = None,
     password: str = "",
+    encryption: str = "off",
 ):
     """Convenience helper to create and start a ScreenCaster with a test pattern.
 
@@ -1082,7 +1083,7 @@ def start_test_pattern(
     from .protocol import ProjectorError
 
     target = CastTarget(host=host, port=port, name="Test Pattern", password=password)
-    caster = EasyMPCaster(on_stats=on_stats, on_error=on_error)
+    caster = EasyMPCaster(on_stats=on_stats, on_error=on_error, encryption=encryption)
 
     async def _start():
         if not await caster.start_test_pattern(target, pattern=pattern_name.lower()):

@@ -206,12 +206,7 @@ async def _fcn(args):
 
 
 async def _encrypt(args):
-    async with ProjectorClient(args.ip, "eps") as client:
-        if not hasattr(client, "set_encryption"):
-            print("Encryption is not supported by this client layer.")
-            sys.exit(1)
-        await client.set_encryption(args.mode.upper())
-        print(f"Successfully set {args.ip} stream encryption to {args.mode.upper()}.")
+    raise ValueError(f"Encryption is selected per casting session. Use cast {args.ip} --encryption aes (or off). DES/AESEPCTR are not implemented.")
 
 
 async def _keystone(args):
@@ -281,6 +276,9 @@ async def _cast(args):
     """Start screen casting to the projector."""
     import signal
 
+    if args.transport != "easymp" and getattr(args, "encryption", "off") != "off":
+        raise ValueError("Legacy AES requires --transport easymp")
+
     pwd = getattr(args, "password", "")
     if args.switch_source:
         print(f"Switching {args.ip} to LAN source...")
@@ -308,6 +306,7 @@ async def _cast(args):
     if args.transport == "easymp":
         caster = EasyMPCaster(fps=fps, stream_quality=args.quality,
                               audio_enabled=getattr(args, "audio", False),
+                              encryption=getattr(args, "encryption", "off"),
                               on_error=lambda e: print(f"Stream error: {e}"))
         print("Using native EasyMP TCP projection (projector negotiates resolution).")
         if getattr(args, "audio", False):
@@ -360,9 +359,12 @@ async def _cast(args):
 
 async def _test_pattern(args):
     """Send a test pattern to the projector for calibration."""
+    if args.transport != "easymp" and getattr(args, "encryption", "off") != "off":
+        raise ValueError("Legacy AES requires --transport easymp")
     target = CastTarget(host=args.ip, port=args.port, name="Test Pattern", password=args.password)
     if args.transport == "easymp":
-        caster = EasyMPCaster(stream_quality=args.quality, on_error=lambda e: print(f"Stream error: {e}"))
+        caster = EasyMPCaster(stream_quality=args.quality, encryption=getattr(args, "encryption", "off"),
+                              on_error=lambda e: print(f"Stream error: {e}"))
     else:
         caster = ScreenCaster(sink=RtpUdpSink(), stream_quality=args.quality,
                               on_error=lambda e: print(f"Stream error: {e}"))
@@ -611,6 +613,7 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
     audio_group.add_argument("--no-audio", action="store_true", help="Disable audio streaming")
     audio_group.add_argument("--audio", action="store_true", help="Include system playback using experimental native PCM audio")
     cast_parser.add_argument("--extend", action="store_true", help="Create a temporary extended display instead of mirroring")
+    cast_parser.add_argument("--encryption", choices=["off", "aes"], default="off", help="Experimental legacy Epson AES for native video/audio; no plaintext fallback")
     cast_parser.add_argument("--quality", choices=["low_latency", "balanced", "high_quality"], default="balanced",
                              help="Stream quality preset")
     cast_parser.add_argument("--codec", choices=["h264", "jpeg"], default="h264",
@@ -635,6 +638,7 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
                            help="Test pattern name (default: smpte)")
     tp_parser.add_argument("--port", type=int, default=5004, help="Video RTP port (default: 5004)")
     tp_parser.add_argument("--quality", choices=["low_latency", "balanced", "high_quality"], default="balanced")
+    tp_parser.add_argument("--encryption", choices=["off", "aes"], default="off")
 
     # PJLink
     pjlink_parser = subparsers.add_parser("pjlink", help="Send PJLink commands")

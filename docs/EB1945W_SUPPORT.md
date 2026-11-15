@@ -72,7 +72,7 @@ video configuration, JPEG decoding, heartbeat, and acknowledged disconnect.
 | Virtual extended monitor | GUI Extend mode and CLI `cast --extend`. GNOME/KDE use the portal's virtual source when supported. Hyprland creates a uniquely named temporary headless output, requires that output in the consent picker, and removes it on Stop, Quit, cancellation, or startup failure. |
 | Multi-presenter quadrants / moderator | Missing EasyMP layout/arbitration; disabled. The old ASCII `MODERATOR` command does not implement that protocol. |
 | Whiteboard / pen/touch | No implemented transport for this projector; disabled. Sending WBSHARE/FCN ASCII commands is insufficient. |
-| Encryption | Capability flags parsed, but native key exchange/encryption not implemented. No encrypted-session compatibility claim. |
+| Encryption | Experimental legacy AES session option; fresh seed, native framing, encrypted video metadata/JPEG/PCM, capability checks, and no plaintext fallback. Binary/OpenSSL vectors and local TCP tests pass; physical encrypted projection is unverified. DES/AESEPCTR remain unimplemented. |
 | WebRTC signaling | Existing stub is not used. No evidence that this 1945W needs WebRTC; it successfully accepts legacy EasyMP. |
 | Network diagnostics / firewall guidance | Added TCP 3620/3621. No local firewall settings were changed. |
 
@@ -93,7 +93,8 @@ full refresh every second and whenever quality changes. Mock transport tests
 check idle suppression, one-tile changes, refreshes, and failed-send recovery;
 this optimization still needs a physical display check. Native audio is now
 implemented for advertised PCM but still needs a projector listening test.
-Encrypted sessions and multi-presenter control remain separate protocol work.
+Legacy AES is implemented with offline validation; physical encrypted projection,
+DES/AESEPCTR, and multi-presenter control remain outstanding.
 Their concrete requirements and research locations are recorded in
 [remaining protocol work](REMAINING_PROTOCOLS.md).
 Temporary output creation/removal passed on the local Hyprland desktop;

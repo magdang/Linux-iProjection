@@ -12,7 +12,7 @@
 
 A native Linux application for controlling and casting to Epson projectors. Provides complete network control via ESC/VP.net, PJLink, and EShare protocols, featuring a GTK4/libadwaita interface alongside a full-featured CLI for scripting.
 
-**Local EasyMP development branch:** native TCP JPEG projection is hardware-tested on an EB/PowerLite 1945W. GUI Extend mode (CLI `cast --extend`) creates a temporary display through the desktop portal, or a headless output on Hyprland. Choose the new `iProjection-…` output in Hyprland's screen picker; Stop removes it. Only changed JPEG tiles are sent between one-second full refreshes. Experimental native PCM audio is opt-in (`cast --audio`) and still needs a projector listening test. See [the model support audit](docs/EB1945W_SUPPORT.md) and [audio notes](docs/EASYMP_AUDIO.md) for verified scope. Encryption and collaboration transports are not implemented.
+**Local EasyMP development branch:** native TCP JPEG projection is hardware-tested on an EB/PowerLite 1945W. GUI Extend mode (CLI `cast --extend`) creates a temporary display through the desktop portal, or a headless output on Hyprland. Choose the new `iProjection-…` output in Hyprland's screen picker; Stop removes it. Only changed JPEG tiles are sent between one-second full refreshes. Native PCM audio (`cast --audio`) and [legacy AES](docs/EASYMP_ENCRYPTION.md) (`cast --encryption aes`) are experimental, explicit opt-ins awaiting projector tests. See [the model support audit](docs/EB1945W_SUPPORT.md) and [audio notes](docs/EASYMP_AUDIO.md) for verified scope. Multi-PC and moderator transports remain unfinished.
 
 ## Core Capabilities
 
