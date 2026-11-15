@@ -32,7 +32,8 @@ log = logging.getLogger(__name__)
 
 
 class EasyMPCaster:
-    def __init__(self, on_stats=None, on_error=None, fps=15, stream_quality="balanced"):
+    def __init__(self, on_stats=None, on_error=None, fps=15, stream_quality="balanced",
+                 audio_enabled=False):
         self.on_stats, self.on_error = on_stats, on_error
         self.fps = min(max(fps, 1), 24)
         self.last_error = None
@@ -40,7 +41,10 @@ class EasyMPCaster:
         self._is_casting = False
         self._stop = threading.Event()
         self._first_frame = threading.Event()
+        self._first_audio = threading.Event()
         self._frames = queue.Queue(maxsize=1)
+        self._audio = queue.Queue(maxsize=5)
+        self.audio_enabled = audio_enabled
         self._worker = self._pipeline = self._client = None
         self._portal_session_handle = None
         self._pipewire_fd = None
@@ -66,8 +70,10 @@ class EasyMPCaster:
             raise ProjectorError("Stop the previous EasyMP session before starting another")
         self._stop.clear()
         self._first_frame.clear()
-        while not self._frames.empty():
-            self._frames.get_nowait()
+        self._first_audio.clear()
+        for pending in (self._frames, self._audio):
+            while not pending.empty():
+                pending.get_nowait()
         self.last_error = None
         self.user_cancelled = False
         _ensure_gst()
@@ -95,7 +101,7 @@ class EasyMPCaster:
                 source = f"pipewiresrc fd={self._pipewire_fd} path={node} do-timestamp=true"
             else:
                 source = f"videotestsrc is-live=true pattern={TEST_PATTERNS[pattern]}"
-            client = EasyMPClient(target.host, keyword=target.password)
+            client = EasyMPClient(target.host, keyword=target.password, audio_enabled=self.audio_enabled)
             client.quality = self.quality
             self._client = client
             connecting = asyncio.create_task(asyncio.to_thread(client.connect))
@@ -115,8 +121,19 @@ class EasyMPCaster:
                 f"video/x-raw,format=RGB,width={width},height={height},pixel-aspect-ratio=1/1,framerate={self.fps}/1 ! "
                 "appsink name=frames emit-signals=true max-buffers=1 drop=true sync=false"
             )
+            if self.audio_enabled:
+                audio = client.audio_format
+                sample_format = "S16LE" if audio.bits == 16 else "U8"
+                pipeline += (
+                    ' pulsesrc device="@DEFAULT_MONITOR@" buffer-time=100000 latency-time=20000 ! '
+                    "audioconvert ! audioresample ! "
+                    f"audio/x-raw,format={sample_format},rate={audio.rate},channels={audio.channels},layout=interleaved ! "
+                    "appsink name=audio emit-signals=true max-buffers=5 drop=true sync=false"
+                )
             self._pipeline = Gst.parse_launch(pipeline)
             self._pipeline.get_by_name("frames").connect("new-sample", self._sample)
+            if self.audio_enabled:
+                self._pipeline.get_by_name("audio").connect("new-sample", self._audio_sample)
             bus = self._pipeline.get_bus()
             bus.add_signal_watch()
             self._bus_handler = bus.connect("message", self._message)
@@ -127,6 +144,10 @@ class EasyMPCaster:
             await asyncio.to_thread(self._first_frame.wait, 8)
             if self._stop.is_set() or not client.frames_sent:
                 raise ProjectorError(self.last_error or "No screen frame was delivered to the EasyMP session")
+            if self.audio_enabled:
+                await asyncio.to_thread(self._first_audio.wait, 3)
+                if self._stop.is_set() or not client.audio_bytes_sent:
+                    raise ProjectorError(self.last_error or "No desktop audio was delivered; turn Include audio off to cast video only")
             self.active_pattern = pattern
             self._is_casting = True
             log.info("EasyMP session accepted and first JPEG frame sent to %s", target.host)
@@ -172,6 +193,13 @@ class EasyMPCaster:
         try:
             while not self._stop.is_set():
                 client.service()
+                for _ in range(5):
+                    try:
+                        pcm = self._audio.get_nowait()
+                    except queue.Empty:
+                        break
+                    client.send_audio(pcm)
+                    self._first_audio.set()
                 try:
                     image = self._frames.get(timeout=0.03)
                 except queue.Empty:
@@ -183,7 +211,8 @@ class EasyMPCaster:
                     if self.on_stats:
                         self.on_stats(StreamStats(
                             bitrate_kbps=(client.bytes_sent - old_bytes) * 8 / (now - last) / 1000,
-                            fps=(client.frames_sent - old_frames) / (now - last), audio_active=False,
+                            fps=(client.frames_sent - old_frames) / (now - last),
+                            audio_active=self.audio_enabled and client.audio_bytes_sent > 0,
                         ))
                     last, old_bytes, old_frames = now, client.bytes_sent, client.frames_sent
         except Exception as exc:
@@ -196,7 +225,30 @@ class EasyMPCaster:
         finally:
             self._stop.set()
             self._first_frame.set()
+            self._first_audio.set()
             client.close()
+
+    def _audio_sample(self, sink):
+        try:
+            sample = sink.emit("pull-sample")
+            buffer = sample.get_buffer()
+            pcm = buffer.extract_dup(0, buffer.get_size())
+            if pcm:
+                try:
+                    self._audio.put_nowait(pcm)
+                except queue.Full:
+                    try:
+                        self._audio.get_nowait()
+                    except queue.Empty:
+                        pass
+                    self._audio.put_nowait(pcm)
+            return Gst.FlowReturn.OK
+        except Exception as exc:
+            self.last_error = f"Desktop audio capture failed: {exc}"
+            self._stop.set()
+            self._first_audio.set()
+            self._first_frame.set()
+            return Gst.FlowReturn.ERROR
 
     def _message(self, bus, message):
         if message.type == Gst.MessageType.ERROR:
@@ -212,6 +264,7 @@ class EasyMPCaster:
     def stop(self):
         self._stop.set()
         self._first_frame.set()
+        self._first_audio.set()
         self._is_casting = False
         if self._pipeline:
             bus = self._pipeline.get_bus()

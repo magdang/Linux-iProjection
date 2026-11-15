@@ -360,7 +360,8 @@ async def discover_eemp(timeout: float = 2.0) -> list[DiscoveredDevice]:
             return DiscoveredDevice(
                 name=identity.name.decode("utf-8", errors="replace"),
                 address=device.address, port=ESCVP_PORT, source="eemp",
-                capabilities=["easymp", "jpeg_tiles"], stream_port=3621, audio_port=3621,
+                capabilities=["easymp", "jpeg_tiles"] + (["pcm_audio"] if identity.audio_sending and identity.audio_formats else []),
+                stream_port=3621, audio_port=3621,
                 info={"streaming_mode": "easymp", "frame_size": [identity.width, identity.height]},
             )
 

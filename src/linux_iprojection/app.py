@@ -543,10 +543,10 @@ class MainWindow(Adw.ApplicationWindow):
 
         # Audio toggle
         audio_row = Adw.ActionRow(
-            title="Include audio",
-            subtitle="System audio transport is not implemented for native EasyMP",
+            title="Include audio (Experimental)",
+            subtitle="Shares system playback; native audio still needs a projector listening test",
         )
-        self.audio_switch = Gtk.Switch(valign=Gtk.Align.CENTER, active=False, sensitive=False)
+        self.audio_switch = Gtk.Switch(valign=Gtk.Align.CENTER, active=False)
         audio_row.add_suffix(self.audio_switch)
         audio_row.set_activatable_widget(self.audio_switch)
         cast_group.add(audio_row)
@@ -2473,6 +2473,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         device = self.current_device
         is_virtual = self.display_mode_row.get_selected() == 1
+        include_audio = self.audio_switch.get_active()
 
         def start_cast():
             try:
@@ -2497,6 +2498,7 @@ class MainWindow(Adw.ApplicationWindow):
                 self._caster = EasyMPCaster(
                     on_stats=self._on_cast_stats, on_error=self._on_cast_error, fps=fps,
                     stream_quality=self._config.stream_quality,
+                    audio_enabled=include_audio,
                 )
                 # Run the async portal request (shows screen picker dialog)
                 asyncio.run(self._caster.start(target, virtual=is_virtual))

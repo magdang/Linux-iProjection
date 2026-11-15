@@ -22,8 +22,9 @@ async def test_cast_cli_passes_extended_display_choice(mocker):
     caster.start = mocker.AsyncMock(return_value=False)
     mocker.patch.object(cli, "EasyMPCaster", return_value=caster)
     args = SimpleNamespace(ip="127.0.0.1", switch_source=False, video_port=5004,
-                           audio_port=5006, transport="easymp", quality="balanced", extend=True)
+                           audio_port=5006, transport="easymp", quality="balanced", extend=True, audio=True)
     with pytest.raises(SystemExit) as exit_info:
         await cli._cast(args)
     assert exit_info.value.code == 0
     assert caster.start.await_args.kwargs == {"virtual": True}
+    assert cli.EasyMPCaster.call_args.kwargs["audio_enabled"] is True

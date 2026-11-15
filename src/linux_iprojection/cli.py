@@ -307,8 +307,11 @@ async def _cast(args):
     )
     if args.transport == "easymp":
         caster = EasyMPCaster(fps=fps, stream_quality=args.quality,
+                              audio_enabled=getattr(args, "audio", False),
                               on_error=lambda e: print(f"Stream error: {e}"))
-        print("Using native EasyMP TCP projection (video only; projector negotiates resolution).")
+        print("Using native EasyMP TCP projection (projector negotiates resolution).")
+        if getattr(args, "audio", False):
+            print("Experimental native desktop audio enabled; projector playback is not yet hardware-verified.")
     else:
         sink = JpegRtpSink() if getattr(args, "codec", "h264") == "jpeg" else RtpUdpSink()
         caster = ScreenCaster(
@@ -604,7 +607,9 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
                              help="Native Epson EasyMP TCP (default), or raw RTP for a compatible receiver")
     cast_parser.add_argument("--video-port", type=int, default=5004, help="Video RTP port (default: 5004)")
     cast_parser.add_argument("--audio-port", type=int, default=5006, help="Audio RTP port (default: 5006)")
-    cast_parser.add_argument("--no-audio", action="store_true", help="Disable audio streaming")
+    audio_group = cast_parser.add_mutually_exclusive_group()
+    audio_group.add_argument("--no-audio", action="store_true", help="Disable audio streaming")
+    audio_group.add_argument("--audio", action="store_true", help="Include system playback using experimental native PCM audio")
     cast_parser.add_argument("--extend", action="store_true", help="Create a temporary extended display instead of mirroring")
     cast_parser.add_argument("--quality", choices=["low_latency", "balanced", "high_quality"], default="balanced",
                              help="Stream quality preset")

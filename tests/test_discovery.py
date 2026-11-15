@@ -199,7 +199,7 @@ async def test_discover_by_scan_filters_arp_to_active_networks():
 @pytest.mark.asyncio
 async def test_easymp_discovery_uses_verified_tcp_capabilities(mocker):
     from linux_iprojection.discovery import discover_eemp
-    from linux_iprojection.easymp import ProjectorIdentity
+    from linux_iprojection.easymp import AudioFormat, ProjectorIdentity
 
     device = DiscoveredDevice("127.0.0.1", "127.0.0.1", 3620, "scan")
     scan = mocker.patch("linux_iprojection.discovery.discover_by_scan", return_value=[device])
@@ -211,6 +211,10 @@ async def test_easymp_discovery_uses_verified_tcp_capabilities(mocker):
     assert result[0].name == "TEST1945W"
     assert result[0].info == {"streaming_mode": "easymp", "frame_size": [1280, 800]}
     assert result[0].stream_port == 3621
+    assert "pcm_audio" not in result[0].capabilities
+    client.return_value.inspect.return_value.audio_sending = True
+    client.return_value.inspect.return_value.audio_formats = (AudioFormat(0x0C),)
+    assert "pcm_audio" in (await discover_eemp())[0].capabilities
     client.return_value.inspect.side_effect = OSError("not an Epson session")
     assert await discover_eemp() == []
 

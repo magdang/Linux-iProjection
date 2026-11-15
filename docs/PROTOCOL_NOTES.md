@@ -107,8 +107,9 @@ and a 0x90 compact JPEG byte-length tag. Raw RTP H.264 or JPEG on UDP 5004 is
 not this protocol and has not projected an image on the tested 1945W.
 
 See [the support audit](EB1945W_SUPPORT.md) for packet sources, the exact scope
-of hardware verification, GUI fixes, and missing audio/security/collaboration
-features. `signaling.py` remains an unused WebRTC stub; it is not evidence that
+of hardware verification, GUI fixes, experimental audio, and missing security/
+collaboration features. [Native PCM audio](EASYMP_AUDIO.md) is opt-in and still
+needs a projector listening test. `signaling.py` remains an unused WebRTC stub; it is not evidence that
 this older projector needs WebRTC.
 
 ### Desktop capture

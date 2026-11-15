@@ -12,6 +12,7 @@ from PIL import Image
 
 from linux_iprojection.easymp import (
     HEADER,
+    AudioFormat,
     EasyMPClient,
     ProjectorIdentity,
     control_packet,
@@ -104,7 +105,8 @@ def test_control_timeout():
 
 
 @pytest.fixture
-def fake_projector():
+def fake_projector(request):
+    audio_enabled = getattr(request, "param", False)
     control = socket.create_server(("127.0.0.1", 0))
     video = socket.create_server(("127.0.0.1", 0))
     control.settimeout(3)
@@ -121,7 +123,8 @@ def fake_projector():
                     reg.sendall(REGISTRATION[at:at + 7])
             auth, _ = control.accept()
             with auth:
-                assert read_message(auth, time.monotonic() + 3)[0] == 4
+                command, seen["login"] = read_message(auth, time.monotonic() + 3)
+                assert command == 4
                 auth.sendall(control_packet("127.0.0.1", 5, REGISTRATION[20:94]))
                 stream, _ = video.accept()
                 aux, _ = video.accept()
@@ -132,11 +135,20 @@ def fake_projector():
                     size = int.from_bytes(header[16:20], "little")
                     meta = stream.recv(size, socket.MSG_WAITALL)
                     assert meta[:8] == bytes.fromhex("c800000005000320")
+                    if audio_enabled:
+                        aux.settimeout(3)
+                        seen["audio_init"] = aux.recv(36, socket.MSG_WAITALL)
                     auth.sendall(control_packet("127.0.0.1", 0x16, bytes(4)))
                     header = stream.recv(20, socket.MSG_WAITALL)
                     if header:
                         size = int.from_bytes(header[16:20], "big")
                         seen["frame"] = stream.recv(size, socket.MSG_WAITALL)
+                    if audio_enabled:
+                        header = aux.recv(5, socket.MSG_WAITALL)
+                        assert header[0] == 0xC9
+                        size = int.from_bytes(header[1:5], "little")
+                        assert 0 < size <= 65536
+                        seen["audio"] = aux.recv(size, socket.MSG_WAITALL)
                     while True:
                         command, _ = read_message(auth, time.monotonic() + 4)
                         if command == 10:
@@ -333,3 +345,131 @@ async def test_pipeline_failure_releases_accepted_session(mocker):
     assert "invalid pipeline" in caster.last_error
     client.close.assert_called_once()
     assert caster._client is None
+
+
+def test_audio_capabilities_and_login_format():
+    projector = identity()
+    assert projector.audio_sending
+    assert projector.audio_formats == (AudioFormat(0x0C),)
+    audio = projector.audio_formats[0]
+    assert (audio.rate, audio.bits, audio.channels, audio.sample_size) == (22050, 8, 1, 1)
+    packet = login_packet("127.0.0.1", "127.0.0.1", projector, audio_format=audio)
+    assert packet[20 + 44:20 + 46] == b"\x01\x0c"
+    with pytest.raises(ProjectorError, match="not advertised"):
+        login_packet("127.0.0.1", "127.0.0.1", projector, audio_format=AudioFormat(0x1F))
+
+
+@pytest.mark.parametrize("flags,expected", [(0, (11025, 8, 1)), (0x0F, (22050, 16, 2)), (0x1F, (48000, 16, 2))])
+def test_pcm_format_bits(flags, expected):
+    audio = AudioFormat(flags)
+    assert (audio.rate, audio.bits, audio.channels) == expected
+
+
+@pytest.mark.parametrize("fake_projector", [True], indirect=True)
+def test_native_audio_negotiation_and_packet(fake_projector):
+    control, video, seen = fake_projector
+    client = EasyMPClient("127.0.0.1", control_port=control, video_port=video, audio_enabled=True)
+    pcm = bytes(range(256)) * 4
+    try:
+        client.connect()
+        client.send_image(Image.new("RGB", (1280, 800), "red"))
+        client.send_audio(pcm)
+        assert client.audio_bytes_sent == len(pcm)
+    finally:
+        client.close()
+    assert seen["audio_init"] == bytes.fromhex(
+        "45505244303630307f0000010000000010000000d00000000100007f0100000000000000"
+    )
+    assert seen["login"][44:46] == b"\x01\x0c"
+    assert seen["audio"] == pcm
+    assert seen["goodbye"]
+
+
+def test_audio_send_requires_negotiation_and_aligned_bounded_data(mocker):
+    client = EasyMPClient("127.0.0.1", audio_enabled=True)
+    client.aux = mocker.Mock()
+    with pytest.raises(ProjectorError, match="not enabled"):
+        client.send_audio(b"data")
+    client.accepted = True
+    client.audio_format = AudioFormat(0x1F)
+    for data in (b"", b"odd", bytes(65540)):
+        with pytest.raises(ValueError, match="Invalid or unaligned"):
+            client.send_audio(data)
+    client.aux.sendall.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fake_projector", [True], indirect=True)
+async def test_gstreamer_native_audio_to_local_tcp_projector(mocker, fake_projector):
+    from linux_iprojection.cast import CastTarget
+    from linux_iprojection.easymp_cast import EasyMPCaster, Gst
+
+    control, video, seen = fake_projector
+    client = EasyMPClient("127.0.0.1", control_port=control, video_port=video, audio_enabled=True)
+    mocker.patch("linux_iprojection.easymp_cast.EasyMPClient", return_value=client)
+    parse = Gst.parse_launch
+
+    def synthetic_audio(pipeline):
+        assert 'device="@DEFAULT_MONITOR@"' in pipeline
+        return parse(pipeline.replace(
+            'pulsesrc device="@DEFAULT_MONITOR@" buffer-time=100000 latency-time=20000',
+            "audiotestsrc is-live=true samplesperbuffer=441 wave=sine",
+        ))
+
+    mocker.patch.object(Gst, "parse_launch", side_effect=synthetic_audio)
+    caster = EasyMPCaster(audio_enabled=True)
+    try:
+        assert await caster.start_test_pattern(CastTarget("127.0.0.1"))
+        assert client.audio_bytes_sent > 0
+        assert client.frames_sent > 0
+    finally:
+        caster.stop()
+        caster._worker.join(timeout=4)
+    pcm = seen["audio"]
+    assert min(pcm) < 50 and max(pcm) > 200
+    assert 120 < sum(pcm) / len(pcm) < 135
+    assert seen["goodbye"]
+
+
+def test_unsupported_audio_fails_before_login(mocker):
+    client = EasyMPClient("127.0.0.1", audio_enabled=True)
+    client.identity = identity()
+    client.identity.audio_sending = False
+    mocker.patch.object(client, "inspect")
+    opening = mocker.patch.object(client, "_open")
+    with pytest.raises(ProjectorError, match="did not advertise"):
+        client.connect()
+    opening.assert_not_called()
+
+
+@pytest.mark.parametrize("data", [b"", b"\x01", b"\x01\0\x01"])
+def test_audio_capability_rejects_incomplete_format_pairs(data):
+    record = bytes((7, len(data))) + data
+    payload = bytearray(30)
+    payload[26:28] = len(record).to_bytes(2, "big")
+    with pytest.raises(ProjectorError, match="audio capability length"):
+        ProjectorIdentity().update(0x15, payload + record)
+
+
+def test_audio_capture_queue_keeps_only_recent_buffers(mocker):
+    from linux_iprojection.easymp_cast import EasyMPCaster, Gst
+
+    caster = EasyMPCaster(audio_enabled=True)
+    sink = mocker.Mock()
+    buffer = sink.emit.return_value.get_buffer.return_value
+    for i in range(12):
+        buffer.extract_dup.return_value = bytes([i])
+        assert caster._audio_sample(sink) == Gst.FlowReturn.OK
+    assert caster._audio.qsize() == 5
+    assert [caster._audio.get_nowait() for _ in range(5)] == [bytes([i]) for i in range(7, 12)]
+
+
+def test_audio_capture_error_releases_startup_waiters(mocker):
+    from linux_iprojection.easymp_cast import EasyMPCaster, Gst
+
+    caster = EasyMPCaster(audio_enabled=True)
+    sink = mocker.Mock()
+    sink.emit.side_effect = ValueError("invalid sample")
+    assert caster._audio_sample(sink) == Gst.FlowReturn.ERROR
+    assert "invalid sample" in caster.last_error
+    assert caster._stop.is_set() and caster._first_audio.is_set() and caster._first_frame.is_set()

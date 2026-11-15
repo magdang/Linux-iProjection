@@ -23,6 +23,27 @@ HEADER = struct.Struct("<8s4sII")
 MAX_CONTROL_PAYLOAD = 65536
 
 
+@dataclass(frozen=True)
+class AudioFormat:
+    flags: int
+
+    @property
+    def rate(self):
+        return (11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000)[(self.flags >> 2) & 7]
+
+    @property
+    def bits(self):
+        return 16 if self.flags & 2 else 8
+
+    @property
+    def channels(self):
+        return 2 if self.flags & 1 else 1
+
+    @property
+    def sample_size(self):
+        return self.channels * self.bits // 8
+
+
 def control_packet(ip: str, command: int, payload: bytes = b"") -> bytes:
     return HEADER.pack(b"EEMP0100", socket.inet_aton(ip), command, len(payload)) + payload
 
@@ -57,6 +78,8 @@ class ProjectorIdentity:
     tile_height: int = 416
     flags: bytes = b""
     jpeg: bool = False
+    audio_sending: bool = False
+    audio_formats: tuple[AudioFormat, ...] = ()
 
     def update(self, command: int, payload: bytes) -> None:
         if command == 3:
@@ -95,6 +118,14 @@ class ProjectorIdentity:
                                 raise ProjectorError("Invalid EasyMP JPEG tile dimensions")
                             self.tile_width = min(w, 624) // 16 * 16
                             self.tile_height = min(h, 416) // 16 * 16
+                elif kind == 7:
+                    if size < 2 or size % 2:
+                        raise ProjectorError("Invalid EasyMP audio capability length")
+                    self.audio_sending = bool(data[0] & 1)
+                    self.audio_formats = tuple(
+                        AudioFormat(data[at + 1]) for at in range(2, size, 2)
+                        if data[at] == 1 and not data[at + 1] & 0xE0
+                    )
                 elif kind == 8:
                     self.flags = data
 
@@ -103,7 +134,8 @@ def registration_packet(ip: str) -> bytes:
     return control_packet(ip, 2, bytes.fromhex("007f0000b0f8ef5314000000") + bytes(36))
 
 
-def login_packet(ip: str, host: str, identity: ProjectorIdentity, keyword: str = "") -> bytes:
+def login_packet(ip: str, host: str, identity: ProjectorIdentity, keyword: str = "",
+                 audio_format: AudioFormat | None = None) -> bytes:
     if keyword and (len(keyword) != 4 or not keyword.isascii() or not keyword.isdigit()):
         raise ValueError("The EasyMP Projector Keyword must contain exactly four ASCII digits")
     if len(identity.mac) != 6 or not any(identity.mac) or not identity.name:
@@ -112,6 +144,10 @@ def login_packet(ip: str, host: str, identity: ProjectorIdentity, keyword: str =
         "0100000000000000000020f37fffff0000000000000201030004000320200001ff00ff00ff00000810000000010c0000"
     )
     struct.pack_into("<HH", body, 24, identity.width, identity.height)
+    if audio_format is not None:
+        if not identity.audio_sending or audio_format not in identity.audio_formats:
+            raise ProjectorError("Requested PCM audio format was not advertised by the projector")
+        body[44:46] = bytes((1, audio_format.flags))
     body += identity.mac + keyword.encode("ascii").ljust(16, b"\0") + socket.inet_aton(ip)
     return control_packet(ip, 4, body)
 
@@ -134,7 +170,8 @@ def video_frame(ip: str, tiles: list[tuple[int, int, int, int, bytes]], size: tu
 class EasyMPClient:
     """One accepted projection session; no refusal retries or keyword guessing."""
 
-    def __init__(self, host: str, keyword: str = "", control_port: int = 3620, video_port: int = 3621):
+    def __init__(self, host: str, keyword: str = "", control_port: int = 3620, video_port: int = 3621,
+                 audio_enabled: bool = False):
         self.host = host
         self.keyword = keyword
         self.control_port = control_port
@@ -149,6 +186,9 @@ class EasyMPClient:
         self._previous_tiles = {}
         self._last_refresh = 0.0
         self._previous_quality = None
+        self.audio_enabled = audio_enabled
+        self.audio_format = None
+        self.audio_bytes_sent = 0
 
     def _open(self, port):
         sock = socket.create_connection((self.host, port), timeout=3)
@@ -191,8 +231,13 @@ class EasyMPClient:
             self._previous_tiles.clear()
             self._last_refresh = 0.0
             self.inspect()
+            if self.audio_enabled:
+                if not self.identity.audio_sending or not self.identity.audio_formats:
+                    raise ProjectorError("Projector did not advertise supported native PCM audio; turn Include audio off")
+                self.audio_format = self.identity.audio_formats[0]
             self.control = self._open(self.control_port)
-            self.control.sendall(login_packet(self.ip, self.control.getpeername()[0], self.identity, self.keyword))
+            self.control.sendall(login_packet(self.ip, self.control.getpeername()[0], self.identity,
+                                              self.keyword, self.audio_format))
             self._wait(5)
             self.video = self._open(self.video_port)
             self.aux = self._open(self.video_port)
@@ -200,6 +245,10 @@ class EasyMPClient:
             meta = b"\xc8\0\0\0" + size + bytes.fromhex("20200001ff00ff00ff00100800000000")
             self.video.sendall(b"EPRD0600" + socket.inet_aton(self.ip) + bytes(4)
                                + struct.pack("<I", len(meta)) + meta)
+            if self.audio_enabled:
+                self.aux.sendall(b"EPRD0600" + socket.inet_aton(self.ip) + bytes(4)
+                                 + struct.pack("<I", 16) + b"\xd0\0\0\0"
+                                 + socket.inet_aton(self.ip)[::-1] + b"\x01" + bytes(7))
             self._wait(0x16)
             self._last_keepalive = time.monotonic()
             log.info("EasyMP session accepted: %s, %dx%d, TCP video %d", self.host,
@@ -246,6 +295,16 @@ class EasyMPClient:
         self.frames_sent += 1
         self.bytes_sent += len(frame)
 
+    def send_audio(self, pcm: bytes):
+        if not self.accepted or self.audio_format is None:
+            raise ProjectorError("Native audio was not enabled for this EasyMP session")
+        if not pcm or len(pcm) > 65536 or len(pcm) % self.audio_format.sample_size:
+            raise ValueError("Invalid or unaligned EasyMP PCM audio buffer")
+        frame = b"\xc9" + struct.pack("<I", len(pcm)) + pcm
+        self.aux.sendall(frame)
+        self.audio_bytes_sent += len(pcm)
+        self.bytes_sent += len(frame)
+
     def close(self):
         try:
             if self.accepted and self.control:
@@ -257,6 +316,7 @@ class EasyMPClient:
             pass
         finally:
             self.accepted = False
+            self.audio_format = None
             for sock in (self.video, self.aux, self.control):
                 if sock:
                     sock.close()
