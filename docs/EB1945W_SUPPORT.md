@@ -121,9 +121,18 @@ that is recorded separately above.
 
 ## Offline follow-up validation
 
-- Final full regression suite: **182 passing tests** in 110.68 seconds. Ruff,
+- Final full regression suite: **227 passing tests** in 110.93 seconds. Ruff,
   Python compilation, and wheel build passed. The rebuilt wheel was installed;
   all changed installed modules matched the source byte for byte.
+- Legacy AES adds independent key/envelope vectors, encrypted metadata/JPEG/PCM
+  delivery over local TCP, capability checks, and fail-closed error coverage.
+  AES projection on the physical device remains unverified.
+- Phone mirroring adds pairing/authorization, private pairing-code handling,
+  owned-process cleanup, and PIN redaction checks. The installed PIN-protected
+  AirPlay receiver started and stopped successfully; no phone sender was tested.
+- Native capability inspection decodes advertised collaboration limits without
+  logging into a projection session. The installed `native-info` command routes
+  to the CLI; the captured projector response contains no Multi-PC record.
 - 169 regression tests passed after changed-tile and virtual-display changes.
 - Native audio adds tests for advertised formats, invalid capability lengths,
   bounds/alignment, auxiliary channel initialization, exact PCM bytes over TCP,

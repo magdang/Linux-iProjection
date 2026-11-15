@@ -50,3 +50,15 @@ async def test_native_info_reads_capabilities_without_projection(mocker, capsys)
     assert data["multi_pc"] is None and data["legacy_encryption"] == ["DES", "AES"]
     assert data["audio_formats"] == [{"rate": 22050, "bits": 8, "channels": 1}]
     client.connect.assert_not_called()
+
+
+def test_entry_point_routes_native_info_to_cli(mocker, monkeypatch):
+    from linux_iprojection.__main__ import main
+
+    monkeypatch.setattr(cli.sys, "argv", ["linux-iprojection", "native-info", "127.0.0.1"])
+    handler = mocker.patch.object(cli, "main", return_value=0)
+    mocker.patch("linux_iprojection.app.main", side_effect=AssertionError("GUI must not start for native-info"))
+    with pytest.raises(SystemExit) as result:
+        main()
+    assert result.value.code == 0
+    handler.assert_called_once_with()

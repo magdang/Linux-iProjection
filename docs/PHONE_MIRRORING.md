@@ -65,10 +65,11 @@ into the Python wheel.
 
 For this local build, UxPlay 1.74 was compiled into the isolated environment;
 scrcpy 5.0.1 and its matching server were extracted from Arch's package into the
-same environment. Both executables accepted the exact launch options. Unit tests
-cover pairing/authorization, child-process ownership, failure cleanup, and PIN
-redaction. No physical Apple/Android sender or projected phone image has been
-claimed as tested, and no receiver was left running by the build checks.
+same environment. Both executables accepted the exact launch options. The
+installed PIN-protected AirPlay receiver also started and stopped successfully.
+Unit tests cover pairing/authorization, child-process ownership, failure cleanup,
+and PIN redaction. No physical Apple/Android sender or projected phone image has
+been tested, and no receiver was left running by the build checks.
 
 Primary setup references: [scrcpy wireless connections](https://github.com/Genymobile/scrcpy/blob/master/doc/connection.md#tcpip-wireless),
 [scrcpy audio](https://github.com/Genymobile/scrcpy/blob/master/doc/audio.md),

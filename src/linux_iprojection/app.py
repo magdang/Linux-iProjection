@@ -590,6 +590,7 @@ class MainWindow(Adw.ApplicationWindow):
         ):
             row = Adw.ActionRow(title=title, subtitle=subtitle)
             button = Gtk.Button(label="Start", valign=Gtk.Align.CENTER)
+            button.update_property([Gtk.AccessibleProperty.LABEL], [f"Start or stop {title}"])
             button.connect("clicked", self._on_phone_mirror_clicked, kind)
             row.add_suffix(button)
             self._phone_rows[kind], self._phone_buttons[kind] = row, button
