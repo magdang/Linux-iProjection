@@ -1,6 +1,8 @@
 # Epson Projector Protocol Notes
 
-Documentation compiled directly from Epson network protocol specifications and public technical documentation. Sufficient detail for reimplementation.
+Control notes from Epson documentation, plus native projection observations.
+See the model support audit for the distinction between implemented, hardware-
+verified, and unimplemented features.
 
 ## ESC/VP.net Control Protocol
 
@@ -14,7 +16,7 @@ Documentation compiled directly from Epson network protocol specifications and p
 ### Command Format
 - ASCII text commands terminated by `\r` (carriage return)
 - Responses terminated by `\r\n` followed by `:` prompt
-- Error responses: `ERR=XX` where XX is error code
+- Rejected ESC/VP21 commands can return bare `ERR`; do not require an `=XX` suffix.
 
 ### Known Commands
 | Command | Description | Response |
@@ -37,19 +39,21 @@ Documentation compiled directly from Epson network protocol specifications and p
 | ASPECT XX | Set aspect ratio | (no response body) |
 | LUMINANCE XX | Set eco mode (00=normal, 01=eco) | (no response body) |
 | KEY XX | Simulate remote key press | (no response body) |
-| HKEYSTONE XX | Horizontal keystone (-60 to 60) | (no response body) |
-| VKEYSTONE XX | Vertical keystone (-60 to 60) | (no response body) |
+| HKEYSTONE XX | Horizontal keystone (1945W wire range 0–255) | (no response body) |
+| VKEYSTONE XX | Vertical keystone (1945W wire range 0–255) | (no response body) |
 | PNAME? | Query projector name | PNAME=string |
 | SIGNAL? | Query signal status | SIGNAL=01 (present) / SIGNAL=00 (absent) |
 | FILTER? | Query filter hours | FILTER=XXXX |
 
-### Enterprise Commands (Reverse-engineered from EMP_PJCON.dll)
-| Command | Description |
-|---------|-------------|
-| MODERATOR ON/OFF | Multi-PC moderator mode |
-| WBSHARE ON/OFF | Whiteboard sharing |
-| FCN ON/OFF | Forward Coordinates (interactive pen/touch) |
-| ENCRYPT mode | Stream encryption (OFF, AES, DES, AESEPCTR) |
+### Proprietary features still requiring implementation
+
+The legacy API's ASCII `MODERATOR`, `WBSHARE`, `FCN`, and `ENCRYPT` strings
+are unverified placeholders, not implemented EasyMP protocols. They must not
+be used as evidence of moderator control, whiteboard sharing, pen transport,
+or encrypted projection. The GUI disables those actions. These features need
+their native session commands, capability negotiation, and (for encryption)
+key exchange and payload encryption. A matching fake-server response only
+tests those placeholder methods; it does not establish projector support.
 
 ### Input Source Codes
 | Code | Source | Confirmed Models |
@@ -65,8 +69,6 @@ Documentation compiled directly from Epson network protocol specifications and p
 | 53 | LAN/Wireless LAN | EB-series (iProjection) |
 | 56 | Wireless HDMI | Newer models |
 | A0 | HDMI 2 | Dual-HDMI models |
-| F1 | iProjection virtual source 1 | All iProjection models |
-| F2 | iProjection virtual source 2 | All iProjection models |
 
 ### Firmware Quirks
 - Keep-alive required: some firmware drops TCP after ~30s idle. Send `PWR?\r` periodically.
@@ -116,6 +118,17 @@ Call `OpenPipeWireRemote` and pass the returned file descriptor to `pipewiresrc`
 The native capture path handles RGB row stride, requests an embedded cursor,
 and bounds the frame queue. Refusal cancels the cast without a synthetic-screen
 fallback. Screen capture is separate from projector session acceptance.
+
+Extend mode requests source type 4 only when the portal advertises it. Hyprland
+1.5.0 uses that flag for existing workspaces/regions, so the native caster creates
+its own temporary headless output there and checks the consent result's
+`mapping_id`. It removes only its own output. It never rewrites compositor
+configuration files or disables an existing monitor. Portal source/cursor
+selection respects the advertised capability bitmasks.
+
+Sources: [ScreenCast portal API](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html),
+[Hyprland output management](https://wiki.hypr.land/configuring/core/advanced-configuration/using-hyprctl/#output),
+and [Hyprland portal 1.5.0 source](https://github.com/hyprwm/xdg-desktop-portal-hyprland/blob/v1.5.0/src/portals/Screencopy.cpp).
 
 ### Raw RTP compatibility path
 
