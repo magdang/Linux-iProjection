@@ -14,6 +14,8 @@ A native Linux application for controlling and casting to Epson projectors. Prov
 
 **Local EasyMP development branch:** native TCP JPEG projection is hardware-tested on an EB/PowerLite 1945W. GUI Extend mode (CLI `cast --extend`) creates a temporary display through the desktop portal, or a headless output on Hyprland. Choose the new `iProjection-…` output in Hyprland's screen picker; Stop removes it. Only changed JPEG tiles are sent between one-second full refreshes. Native PCM audio (`cast --audio`) and [legacy AES](docs/EASYMP_ENCRYPTION.md) (`cast --encryption aes`) are experimental, explicit opt-ins awaiting projector tests. See [the model support audit](docs/EB1945W_SUPPORT.md) and [audio notes](docs/EASYMP_AUDIO.md) for verified scope. Multi-PC and moderator transports remain unfinished.
 
+**Phone mirroring:** the GUI starts a PIN-protected AirPlay receiver through UxPlay or a wireless Android mirror through scrcpy, including Android 11+ pairing. Share the received phone window through Start Casting. This uses the Linux computer as a bridge; Android uses an alternative to Miracast. See [phone setup and requirements](docs/PHONE_MIRRORING.md).
+
 ## Core Capabilities
 
 * **Native GTK4 Interface:** Fast, responsive UI built with GTK4 and libadwaita.

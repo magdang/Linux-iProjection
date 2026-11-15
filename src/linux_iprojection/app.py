@@ -25,6 +25,7 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 from .client import ProjectorClient  # noqa: E402
 from .config import AppConfig, DeviceStore, load_config, save_config, setup_logging  # noqa: E402
 from .discovery import DiscoveredDevice, discover_all  # noqa: E402
+from .phone_mirror import PhoneMirror, pair_android  # noqa: E402
 from .protocol import AspectRatio, ColorMode, KeystoneAxis, LuminanceMode, Source  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -192,6 +193,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._polling_source_id: int | None = None
         self._is_casting = False
         self._caster = None
+        self._phone_mirrors = {kind: PhoneMirror(kind) for kind in ("airplay", "android")}
+        self._phone_timers = {}
 
         # Build the whole UI
         self._build_ui()
@@ -575,6 +578,28 @@ class MainWindow(Adw.ApplicationWindow):
         cast_group.add(pattern_row)
 
         page1_box.append(cast_group)
+
+        phone_group = Adw.PreferencesGroup(
+            title="Phone Mirroring",
+            description="Receive on this computer, then Start Casting and select the phone window or its screen. Enable Include audio before starting to forward playback.",
+        )
+        self._phone_rows, self._phone_buttons = {}, {}
+        for kind, title, subtitle in (
+            ("airplay", "Apple AirPlay", "Start the receiver, then choose iProjection in Screen Mirroring on your iPhone or Mac"),
+            ("android", "Android Wireless Mirror", "Pair Android 11+ with Wireless debugging, then start the phone window"),
+        ):
+            row = Adw.ActionRow(title=title, subtitle=subtitle)
+            button = Gtk.Button(label="Start", valign=Gtk.Align.CENTER)
+            button.connect("clicked", self._on_phone_mirror_clicked, kind)
+            row.add_suffix(button)
+            self._phone_rows[kind], self._phone_buttons[kind] = row, button
+            phone_group.add(row)
+        pair_row = Adw.ActionRow(title="Pair Android", subtitle="Use the pairing code and the two ports shown in Wireless debugging")
+        pair_button = Gtk.Button(label="Pair…", valign=Gtk.Align.CENTER)
+        pair_button.connect("clicked", self._on_pair_android_clicked)
+        pair_row.add_suffix(pair_button)
+        phone_group.add(pair_row)
+        page1_box.append(phone_group)
 
         # Status
         status_group = Adw.PreferencesGroup(
@@ -1014,6 +1039,11 @@ class MainWindow(Adw.ApplicationWindow):
             self.show_toast("Issue tracker: https://github.com/John-Varghese-EH/Linux-iProjection/issues")
 
     def _on_quit_action(self, *_args):
+        for source in self._phone_timers.values():
+            GLib.source_remove(source)
+        self._phone_timers.clear()
+        for mirror in self._phone_mirrors.values():
+            mirror.close()
         if self._caster:
             self._caster.stop()
             self._caster = None
@@ -2467,6 +2497,76 @@ class MainWindow(Adw.ApplicationWindow):
 
     # Casting
 
+    def _on_phone_mirror_clicked(self, button, kind):
+        mirror = self._phone_mirrors[kind]
+        stopping = mirror.running
+        previous = self._phone_timers.pop(kind, None)
+        if previous:
+            GLib.source_remove(previous)
+        audio = self.audio_switch.get_active()
+        button.set_sensitive(False)
+
+        async def operation():
+            return await asyncio.to_thread(mirror.stop if stopping else lambda: mirror.start(audio=audio))
+
+        @_run_async(operation())
+        def done(pin, error):
+            button.set_sensitive(True)
+            button.set_label("Stop" if mirror.running else "Start")
+            if error:
+                self._show_error_dialog("Phone mirroring failed", str(error))
+            elif stopping:
+                self._phone_rows[kind].set_subtitle("Stopped. Start again when you want to share your phone.")
+            else:
+                message = f"AirPlay name: iProjection · PIN: {pin}. Connect, then select the UxPlay window when casting." if pin else "Select the iProjection Android window when casting. Phone control and clipboard sharing are off."
+                self._phone_rows[kind].set_subtitle(message)
+                self._phone_timers[kind] = GLib.timeout_add(500, self._check_phone_mirror, kind)
+
+    def _check_phone_mirror(self, kind):
+        result = self._phone_mirrors[kind].finished()
+        if result is None:
+            return True
+        self._phone_timers.pop(kind, None)
+        self._phone_buttons[kind].set_label("Start")
+        self._phone_rows[kind].set_subtitle("Phone mirroring stopped")
+        code, detail = result
+        if code:
+            self._show_error_dialog("Phone mirroring stopped", detail or f"Receiver exited with code {code}")
+        return False
+
+    def _on_pair_android_clicked(self, _button):
+        dialog = Adw.AlertDialog(
+            heading="Pair Android Wirelessly",
+            body="On Android 11+, open Developer options → Wireless debugging. Pair device with pairing code shows the pairing address/code. The main Wireless debugging page shows a different connection port.",
+        )
+        fields = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        pairing = Adw.EntryRow(title="Pairing IP:port")
+        code = Adw.PasswordEntryRow(title="Six-digit pairing code")
+        connection = Adw.EntryRow(title="Connection IP:port")
+        for row in (pairing, code, connection):
+            fields.append(row)
+        dialog.set_extra_child(fields)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("pair", "Pair")
+        dialog.set_response_appearance("pair", Adw.ResponseAppearance.SUGGESTED)
+
+        def response(_dialog, action):
+            if action != "pair":
+                return
+            values = pairing.get_text(), code.get_text(), connection.get_text()
+            code.set_text("")
+
+            @_run_async(asyncio.to_thread(pair_android, *values))
+            def done(_result, error):
+                if error:
+                    self._show_error_dialog("Android pairing failed", str(error))
+                else:
+                    self._phone_rows["android"].set_subtitle("Paired. Start Android mirror, then select its window while casting.")
+                    self.show_toast("Android paired and connected")
+
+        dialog.connect("response", response)
+        dialog.present(self)
+
     def on_cast_clicked(self, _button) -> None:
         if self._caster and self._caster.is_casting:
             self.on_stop_cast_clicked(None)
@@ -2809,6 +2909,8 @@ class EpsonCtlApp(Adw.Application):
 
     def do_shutdown(self) -> None:
         for win in self.get_windows():
+            for mirror in getattr(win, "_phone_mirrors", {}).values():
+                mirror.close()
             if getattr(win, "_caster", None):
                 win._caster.stop()
             if hasattr(win, "_tray_process") and win._tray_process:

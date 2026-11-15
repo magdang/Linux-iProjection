@@ -26,12 +26,16 @@ def test_status_refresh_and_model_controls(mocker, monkeypatch, tmp_path):
     from linux_iprojection.discovery import DiscoveredDevice
 
     monkeypatch.setattr(config, "get_config_dir", lambda: tmp_path)
+    spawn_phone = mocker.patch("linux_iprojection.phone_mirror.subprocess.Popen")
     for name in ("on_refresh", "_load_persisted_devices", "_start_polling", "_setup_tray_icon"):
         mocker.patch.object(app.MainWindow, name)
     monkeypatch.setattr(app, "_run_async", immediate_async)
     application = Adw.Application(application_id="dev.linux_iprojection.ControlTests", flags=Gio.ApplicationFlags.NON_UNIQUE)
     application.register(None)
     window = app.MainWindow(application)
+    spawn_phone.assert_not_called()
+    assert not window.aes_switch.get_active()
+    assert set(window._phone_buttons) == {"airplay", "android"}
     status = UnifiedStatus(power="01", source="53", volume=48, sharpness=116,
                            brightness=125, contrast=125, color_mode="04", luminance="01",
                            hkeystone=143, vkeystone=192, freeze=False,
