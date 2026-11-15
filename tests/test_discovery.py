@@ -209,7 +209,8 @@ async def test_easymp_discovery_uses_verified_tcp_capabilities(mocker):
     scan.assert_awaited_once_with(ports=[3620])
     assert len(result) == 1
     assert result[0].name == "TEST1945W"
-    assert result[0].info == {"streaming_mode": "easymp", "frame_size": [1280, 800]}
+    assert result[0].info == {"streaming_mode": "easymp", "frame_size": [1280, 800],
+                              "native_capabilities": client.return_value.inspect.return_value.capabilities()}
     assert result[0].stream_port == 3621
     assert "pcm_audio" not in result[0].capabilities
     client.return_value.inspect.return_value.audio_sending = True

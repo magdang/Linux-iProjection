@@ -544,3 +544,36 @@ def test_aes_capability_and_dependency_fail_without_plaintext_login(mocker):
 def test_legacy_refusals_do_not_wait_for_timeout(command, payload):
     with pytest.raises(ProjectorError):
         EasyMPClient("127.0.0.1")._handle(command, payload)
+
+
+def test_registration_reports_advertised_features_without_guessing_multi_pc():
+    assert identity().capabilities() == {
+        "protocol_version": 10, "records": [1, 2, 3, 4, 5, 7, 8, 9],
+        "legacy_encryption": ["DES", "AES"], "whiteboard_sharing": False, "multi_pc": None,
+    }
+
+
+def test_multi_pc_record_and_fresh_registration_clear_stale_capabilities():
+    record = bytes((10, 10, 0x3F, 2, 1, 32, 4, 1, 0, 0, 0, 0))
+    payload = bytearray(30)
+    payload[26:28] = len(record).to_bytes(2, "big")
+    projector = identity()
+    projector.update(0x15, payload + record)
+    assert projector.multi_pc == {
+        "supported": True, "moderator": True, "delivery": True, "thumbnails": True,
+        "coordinates": True, "pin_code": True, "max_version": 2, "min_version": 1,
+        "max_users": 32, "max_displays": 4, "max_audio": 1,
+    }
+    assert not projector.jpeg and not projector.audio_sending
+    assert projector.capabilities()["legacy_encryption"] is None
+    projector.update(0x15, bytes(30))
+    assert projector.multi_pc is None and projector.capability_types == ()
+
+
+@pytest.mark.parametrize("size", [0, 1, 5])
+def test_truncated_multi_pc_capability_is_rejected(size):
+    record = bytes((10, size)) + bytes(size)
+    payload = bytearray(30)
+    payload[26:28] = len(record).to_bytes(2, "big")
+    with pytest.raises(ProjectorError, match="Truncated EasyMP Multi-PC"):
+        ProjectorIdentity().update(0x15, payload + record)

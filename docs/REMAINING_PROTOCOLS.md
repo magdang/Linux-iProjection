@@ -19,6 +19,14 @@ Byte 2 bit 3 is whiteboard sharing and is clear. Multi-PC capability record
 does not establish that every Epson application or session mode on this model
 lacks those features; a different registration/session flow may be needed.
 
+The implementation now decodes record 10's support, moderator, delivery,
+thumbnail, coordinate, PIN, version, user/display, and audio limits when present.
+Discovery retains this metadata. `linux-iprojection native-info HOST` performs
+registration only and prints the advertised features as JSON without logging in
+or projecting. An absent record is reported as `null`, rather than inventing
+Multi-PC support. Fresh capability replies clear stale feature flags, including
+encryption capabilities.
+
 ## Missing implementations and concrete research locations
 
 Addresses below refer to the same Epson iProjection 4.10 `EMP_PJCON.dll` hash

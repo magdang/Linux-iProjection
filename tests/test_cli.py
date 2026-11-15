@@ -37,3 +37,16 @@ async def test_rtp_rejects_aes_before_contacting_projector(mocker):
     with pytest.raises(ValueError, match="requires --transport easymp"):
         await cli._cast(SimpleNamespace(transport="rtp", encryption="aes"))
     backend.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_native_info_reads_capabilities_without_projection(mocker, capsys):
+    from linux_iprojection.easymp import AudioFormat, ProjectorIdentity
+
+    client = mocker.patch("linux_iprojection.easymp.EasyMPClient").return_value
+    client.inspect.return_value = ProjectorIdentity(name=b"TEST", audio_formats=(AudioFormat(12),), flags=b"\x9f\x03\x00")
+    await cli._native_info(SimpleNamespace(ip="127.0.0.1", port=3620))
+    data = cli.json.loads(capsys.readouterr().out)
+    assert data["multi_pc"] is None and data["legacy_encryption"] == ["DES", "AES"]
+    assert data["audio_formats"] == [{"rate": 22050, "bits": 8, "channels": 1}]
+    client.connect.assert_not_called()

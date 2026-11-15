@@ -209,6 +209,17 @@ async def _encrypt(args):
     raise ValueError(f"Encryption is selected per casting session. Use cast {args.ip} --encryption aes (or off). DES/AESEPCTR are not implemented.")
 
 
+async def _native_info(args):
+    from .easymp import EasyMPClient
+
+    identity = await asyncio.to_thread(EasyMPClient(args.ip, control_port=args.port).inspect)
+    print(json.dumps({"name": identity.name.decode("utf-8", errors="replace"),
+                      "frame_size": [identity.width, identity.height],
+                      "audio_formats": [{"rate": audio.rate, "bits": audio.bits, "channels": audio.channels}
+                                        for audio in identity.audio_formats],
+                      **identity.capabilities()}, indent=2))
+
+
 async def _keystone(args):
     if not (0 <= args.value <= 255):
         print("Keystone value must be between 0 and 255.")
@@ -640,6 +651,10 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
     tp_parser.add_argument("--quality", choices=["low_latency", "balanced", "high_quality"], default="balanced")
     tp_parser.add_argument("--encryption", choices=["off", "aes"], default="off")
 
+    native_parser = subparsers.add_parser("native-info", help="Read native capabilities without logging in or projecting")
+    native_parser.add_argument("ip", help="Projector IPv4 address")
+    native_parser.add_argument("--port", type=int, default=3620)
+
     # PJLink
     pjlink_parser = subparsers.add_parser("pjlink", help="Send PJLink commands")
     pjlink_parser.add_argument("ip", help="IP address of the projector")
@@ -658,6 +673,7 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
     args = parser.parse_args()
 
     handlers = {
+        "native-info": _native_info,
         "discover": _discover,
         "status": _status,
         "power": _power,

@@ -81,6 +81,20 @@ class ProjectorIdentity:
     jpeg: bool = False
     audio_sending: bool = False
     audio_formats: tuple[AudioFormat, ...] = ()
+    protocol_version: int | None = None
+    multi_pc: dict | None = None
+    capability_types: tuple[int, ...] = ()
+
+    def capabilities(self):
+        return {
+            "protocol_version": self.protocol_version,
+            "records": list(self.capability_types),
+            "legacy_encryption": None if len(self.flags) < 2 else [
+                name for bit, name in enumerate(("DES", "AES", "AESEPCTR")) if self.flags[1] & (1 << bit)
+            ],
+            "whiteboard_sharing": bool(self.flags[2] & 8) if len(self.flags) >= 3 else None,
+            "multi_pc": self.multi_pc,
+        }
 
     def update(self, command: int, payload: bytes) -> None:
         if command == 3:
@@ -97,6 +111,9 @@ class ProjectorIdentity:
             if end > len(payload):
                 raise ProjectorError("Truncated EasyMP capability records")
             offset = 30
+            self.protocol_version, self.multi_pc, self.capability_types = None, None, ()
+            self.flags, self.jpeg, self.audio_sending, self.audio_formats = b"", False, False, ()
+            self.width, self.height, self.tile_width, self.tile_height = 1024, 768, 624, 416
             while offset + 2 <= end:
                 kind, size = payload[offset:offset + 2]
                 offset += 2
@@ -106,7 +123,12 @@ class ProjectorIdentity:
                     raise ProjectorError("Truncated EasyMP capability record")
                 data = payload[offset:offset + size]
                 offset += size
-                if kind == 3 and size >= 4:
+                self.capability_types += (kind,)
+                if kind == 1:
+                    if size < 4:
+                        raise ProjectorError("Truncated EasyMP protocol version")
+                    self.protocol_version = int.from_bytes(data[:4], "little")
+                elif kind == 3 and size >= 4:
                     self.width, self.height = struct.unpack_from("<HH", data)
                     if not (64 <= self.width <= 4096 and 64 <= self.height <= 4096):
                         raise ProjectorError("Unsupported EasyMP frame dimensions")
@@ -129,6 +151,16 @@ class ProjectorIdentity:
                     )
                 elif kind == 8:
                     self.flags = data
+                elif kind == 10:
+                    if size < 6:
+                        raise ProjectorError("Truncated EasyMP Multi-PC capability")
+                    self.multi_pc = {
+                        "supported": bool(data[0] & 1), "moderator": bool(data[0] & 2),
+                        "delivery": bool(data[0] & 4), "thumbnails": bool(data[0] & 8),
+                        "coordinates": bool(data[0] & 16), "pin_code": bool(data[0] & 32),
+                        "max_version": data[1], "min_version": data[2], "max_users": data[3],
+                        "max_displays": data[4], "max_audio": data[5],
+                    }
 
 
 def registration_packet(ip: str) -> bytes:
