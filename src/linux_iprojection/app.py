@@ -511,8 +511,7 @@ class MainWindow(Adw.ApplicationWindow):
             ["Mirror Screen (Native)", "Extend Screen (Virtual Monitor)"]
         )
         self.display_mode_row.set_model(self.display_mode_model)
-        self.display_mode_row.set_sensitive(False)
-        self.display_mode_row.set_subtitle("EasyMP mirrors the selected screen or window")
+        self.display_mode_row.set_subtitle("Extend adds a temporary display; choose it in the screen picker")
         cast_group.add(self.display_mode_row)
 
         # Hardware Acceleration (Encoder Preset)
@@ -2473,7 +2472,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.cast_btn.set_label("Starting…")
 
         device = self.current_device
-        is_virtual = False
+        is_virtual = self.display_mode_row.get_selected() == 1
 
         def start_cast():
             try:

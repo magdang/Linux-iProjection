@@ -26,6 +26,7 @@ from .cast import (  # noqa: E402
 )
 from .easymp import EasyMPClient  # noqa: E402
 from .protocol import ProjectorError  # noqa: E402
+from .virtual_display import VirtualMonitor  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ class EasyMPCaster:
         self._pipewire_fd = None
         self._bus_handler = None
         self.active_pattern = None
+        self._virtual_monitor = VirtualMonitor()
         self.quality = {"low_latency": 65, "balanced": 85, "high_quality": 95}[stream_quality]
 
     @property
@@ -52,17 +54,14 @@ class EasyMPCaster:
         return self._is_casting and not self._stop.is_set()
 
     async def start(self, target, virtual=False):
-        if virtual:
-            self.last_error = "EasyMP currently mirrors a selected screen or window; virtual display creation is not implemented."
-            return False
-        return await self._start(target)
+        return await self._start(target, virtual=virtual)
 
     async def start_test_pattern(self, target, pattern="smpte"):
         if pattern not in TEST_PATTERNS:
             raise ValueError(f"Unknown test pattern: {pattern}")
         return await self._start(target, pattern)
 
-    async def _start(self, target, pattern=None):
+    async def _start(self, target, pattern=None, virtual=False):
         if self._client is not None or (self._worker and self._worker.is_alive()):
             raise ProjectorError("Stop the previous EasyMP session before starting another")
         self._stop.clear()
@@ -74,7 +73,15 @@ class EasyMPCaster:
         _ensure_gst()
         try:
             if pattern is None:
-                node, self._portal_session_handle = await _request_portal_stream()
+                if virtual and os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+                    name = self._virtual_monitor.create()
+                    if self._stop.is_set():
+                        return False
+                    node, self._portal_session_handle = await _request_portal_stream(monitor_name=name)
+                elif virtual:
+                    node, self._portal_session_handle = await _request_portal_stream(virtual=True)
+                else:
+                    node, self._portal_session_handle = await _request_portal_stream()
                 if self._stop.is_set():
                     return False
                 bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -222,6 +229,7 @@ class EasyMPCaster:
             self._client = None
         _close_session(self._portal_session_handle)
         self._portal_session_handle = None
+        self._virtual_monitor.close()
         if self._pipewire_fd is not None:
             os.close(self._pipewire_fd)
             self._pipewire_fd = None

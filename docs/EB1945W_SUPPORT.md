@@ -69,7 +69,7 @@ video configuration, JPEG decoding, heartbeat, and acknowledged disconnect.
 | Console / status export | Existing explicit raw-command and local JSON export paths retained. A raw unsupported command can still legitimately return ERR. |
 | Quality | Changes native JPEG compression. Resolution follows projector capabilities rather than an unrelated H.264 preset. |
 | Native audio | Not implemented. Audio toggle disabled with an explanation; no microphone or audio-source capture is started. Auxiliary connection remains open. |
-| Virtual extended monitor | Not implemented; disabled. Selection of an existing screen/window is supported by the desktop portal. |
+| Virtual extended monitor | GUI Extend mode and CLI `cast --extend`. GNOME/KDE use the portal's virtual source when supported. Hyprland creates a uniquely named temporary headless output, requires that output in the consent picker, and removes it on Stop, Quit, cancellation, or startup failure. |
 | Multi-presenter quadrants / moderator | Missing EasyMP layout/arbitration; disabled. The old ASCII `MODERATOR` command does not implement that protocol. |
 | Whiteboard / pen/touch | No implemented transport for this projector; disabled. Sending WBSHARE/FCN ASCII commands is insufficient. |
 | Encryption | Capability flags parsed, but native key exchange/encryption not implemented. No encrypted-session compatibility claim. |
@@ -92,8 +92,11 @@ Unchanged tiles are omitted using the existing validated JPEG framing, with a
 full refresh every second and whenever quality changes. Mock transport tests
 check idle suppression, one-tile changes, refreshes, and failed-send recovery;
 this optimization still needs a physical display check. Native audio,
-encrypted sessions, multi-presenter control, and virtual display creation remain
-separate protocol work. Tests cannot establish that a physical image appeared;
+encrypted sessions and multi-presenter control remain separate protocol work.
+Temporary output creation/removal passed on the local Hyprland desktop;
+GNOME/KDE virtual sources have mock coverage only. A forced process kill can
+leave a Hyprland output until it is removed or the desktop session ends.
+Tests cannot establish that a physical image appeared;
 that is recorded separately above.
 
 ## Validation recorded on 2026-11-15

@@ -249,7 +249,7 @@ class PortalError(Exception):
     """Raised when xdg-desktop-portal ScreenCast is unavailable or fails."""
 
 
-async def _request_portal_stream(virtual: bool = False) -> tuple[int, str]:
+async def _request_portal_stream(virtual: bool = False, monitor_name: str | None = None) -> tuple[int, str]:
     """Walk the xdg-desktop-portal ScreenCast flow and return (node_id, session_handle).
 
     The session handle is returned so the caller can own and close exactly its
@@ -271,6 +271,14 @@ async def _request_portal_stream(virtual: bool = False) -> tuple[int, str]:
         "org.freedesktop.portal.ScreenCast",
         None,
     )
+
+    available = portal_proxy.get_cached_property("AvailableSourceTypes")
+    requested = 4 if virtual else 1 if monitor_name else 3
+    source_types = requested & (available.unpack() if available else 3)
+    if not source_types:
+        raise PortalError("This desktop portal does not support the selected display mode. Use Mirror Screen.")
+    cursor_modes = portal_proxy.get_cached_property("AvailableCursorModes")
+    cursor_mode = 2 if cursor_modes is None or cursor_modes.unpack() & 2 else 1
 
     global _portal_token_counter
     _portal_token_counter += 1
@@ -350,8 +358,8 @@ async def _request_portal_stream(virtual: bool = False) -> tuple[int, str]:
                 (
                     session_handle,
                     {
-                        "types": GLib.Variant("u", 4 if virtual else 3),  # 4=Virtual, 3=Monitor+Window
-                        "cursor_mode": GLib.Variant("u", 2),  # 2 = embedded cursor
+                        "types": GLib.Variant("u", source_types),
+                        "cursor_mode": GLib.Variant("u", cursor_mode),
                         "handle_token": GLib.Variant("s", req2),
                     },
                 ),
@@ -380,6 +388,8 @@ async def _request_portal_stream(virtual: bool = False) -> tuple[int, str]:
         streams = start_result.get("streams", [])
         if not streams:
             raise PortalError("ScreenCast portal returned no video streams")
+        if monitor_name and streams[0][1].get("mapping_id") != monitor_name:
+            raise PortalError(f"To extend your desktop, select {monitor_name} in the screen picker.")
 
         node_id = int(streams[0][0])
         log.info("PipeWire node ID: %d", node_id)
@@ -387,6 +397,9 @@ async def _request_portal_stream(virtual: bool = False) -> tuple[int, str]:
         return node_id, session_handle
 
     except UserCancelledError:
+        _close_session(session_handle)
+        raise
+    except asyncio.CancelledError:
         _close_session(session_handle)
         raise
     except Exception as e:

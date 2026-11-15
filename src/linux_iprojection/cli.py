@@ -326,7 +326,7 @@ async def _cast(args):
         print(f"Connecting to EasyMP projector {args.ip}...")
     else:
         print(f"Starting RTP stream to {args.ip}:{args.video_port} ({w}x{h}@{fps}fps)...")
-    success = await caster.start(target)
+    success = await caster.start(target, virtual=getattr(args, "extend", False))
     if not success:
         if getattr(caster, "user_cancelled", False):
             print("Screen sharing cancelled by user.")
@@ -605,6 +605,7 @@ Built by John Varghese (J0X) | https://github.com/John-Varghese-EH
     cast_parser.add_argument("--video-port", type=int, default=5004, help="Video RTP port (default: 5004)")
     cast_parser.add_argument("--audio-port", type=int, default=5006, help="Audio RTP port (default: 5006)")
     cast_parser.add_argument("--no-audio", action="store_true", help="Disable audio streaming")
+    cast_parser.add_argument("--extend", action="store_true", help="Create a temporary extended display instead of mirroring")
     cast_parser.add_argument("--quality", choices=["low_latency", "balanced", "high_quality"], default="balanced",
                              help="Stream quality preset")
     cast_parser.add_argument("--codec", choices=["h264", "jpeg"], default="h264",

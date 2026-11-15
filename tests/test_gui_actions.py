@@ -52,7 +52,7 @@ def test_status_refresh_and_model_controls(mocker, monkeypatch, tmp_path):
         assert window.vkey_scale.get_value() == 192
         assert window.hkey_scale.get_adjustment().get_upper() == 255
         assert not window.audio_switch.get_sensitive()
-        assert not window.display_mode_row.get_sensitive()
+        assert window.display_mode_row.get_sensitive()
         assert not window.moderator_switch.is_sensitive()
         assert "A0" not in [source.value for source in window._source_choices]
 
