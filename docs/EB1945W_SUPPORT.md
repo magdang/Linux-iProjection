@@ -94,6 +94,8 @@ check idle suppression, one-tile changes, refreshes, and failed-send recovery;
 this optimization still needs a physical display check. Native audio is now
 implemented for advertised PCM but still needs a projector listening test.
 Encrypted sessions and multi-presenter control remain separate protocol work.
+Their concrete requirements and research locations are recorded in
+[remaining protocol work](REMAINING_PROTOCOLS.md).
 Temporary output creation/removal passed on the local Hyprland desktop;
 GNOME/KDE virtual sources have mock coverage only. A forced process kill can
 leave a Hyprland output until it is removed or the desktop session ends.
@@ -117,6 +119,9 @@ that is recorded separately above.
 
 ## Offline follow-up validation
 
+- Final full regression suite: **182 passing tests** in 110.68 seconds. Ruff,
+  Python compilation, and wheel build passed. The rebuilt wheel was installed;
+  all changed installed modules matched the source byte for byte.
 - 169 regression tests passed after changed-tile and virtual-display changes.
 - Native audio adds tests for advertised formats, invalid capability lengths,
   bounds/alignment, auxiliary channel initialization, exact PCM bytes over TCP,

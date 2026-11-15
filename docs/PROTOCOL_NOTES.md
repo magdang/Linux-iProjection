@@ -120,8 +120,8 @@ The native capture path handles RGB row stride, requests an embedded cursor,
 and bounds the frame queue. Refusal cancels the cast without a synthetic-screen
 fallback. Screen capture is separate from projector session acceptance.
 
-Extend mode requests source type 4 only when the portal advertises it. Hyprland
-1.5.0 uses that flag for existing workspaces/regions, so the native caster creates
+Extend mode requests source type 4 only when the portal advertises it. Hyprland's
+portal 1.5.0 uses that flag for existing workspaces/regions, so the native caster creates
 its own temporary headless output there and checks the consent result's
 `mapping_id`. It removes only its own output. It never rewrites compositor
 configuration files or disables an existing monitor. Portal source/cursor
